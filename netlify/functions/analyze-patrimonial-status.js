@@ -6,23 +6,6 @@ const path = require('path');
 const csvPath = path.join(__dirname, 'BDCstatut.csv');
 const statusDataRaw = fs.readFileSync(csvPath, 'utf8');
 
-/**
- * Normalise un nom d'espèce pour faciliter la comparaison.
- * Utilise une regex pour extraire le nom binomial/trinomial (ex: "genus species", "genus species subspecies")
- * et ignorer les auteurs, années, et autres informations qui suivent.
- * @param {string} name - Le nom scientifique complet.
- * @returns {string} Le nom taxonomique de base, normalisé.
- */
-const normalizeSpeciesName = (name) => {
-    if (!name) return '';
-    const lowerCaseName = name.toLowerCase();
-    // Regex pour capturer le nom en 1, 2 ou 3 parties (Genre, Genre espece, Genre espece ssp)
-    const match = lowerCaseName.match(/^([a-z]+\s[a-z]+(\s[a-z]+)?)/);
-    
-    // Si une correspondance est trouvée, la retourner. Sinon, retourner le nom nettoyé comme fallback.
-    return match ? match[0] : lowerCaseName.replace(/\s+/g, ' ').trim();
-};
-
 const parseStatusData = () => {
     const lines = statusDataRaw.trim().split(/\r?\n/);
     const header = lines.shift().split(';').map(h => h.trim().replace(/"/g, ''));
@@ -48,8 +31,7 @@ exports.handler = async function(event) {
 
     try {
         const { discoveredOccurrences, coords } = JSON.parse(event.body);
-        // Obtenir la liste des noms d'espèces uniques, en filtrant les entrées invalides.
-        const uniqueSpeciesNames = [...new Set(discoveredOccurrences.map(o => o.species).filter(Boolean))];
+        const uniqueSpeciesNames = [...new Set(discoveredOccurrences.map(o => o.species))];
 
         const geoResp = await fetch(`https://geo.api.gouv.fr/communes?lat=${coords.latitude}&lon=${coords.longitude}&fields=departement,region`);
         const [info] = await geoResp.json();
@@ -63,67 +45,42 @@ exports.handler = async function(event) {
             if (adm === regionName || adm === departementName) {
                 const type = (row.LB_TYPE_STATUT || '').toLowerCase();
                 if ((type.includes('liste rouge') && threatCodes.has(row.CODE_STATUT)) || type.includes('protection') || type.includes('directive')) {
-                    const normalizedName = normalizeSpeciesName(row.LB_NOM);
-                    if (normalizedName && !localRules.has(normalizedName)) {
-                        localRules.set(normalizedName, { originalName: row.LB_NOM, label: row.LABEL_STATUT });
-                    }
+                    localRules.set(row.LB_NOM, row.LABEL_STATUT);
                 }
             }
         });
+
+        const prompt = `Tu es un expert botaniste pour la région française '${regionName}'. Ta mission est d'analyser une liste d'espèces observées sur le terrain et de déterminer lesquelles sont patrimoniales en te basant sur un extrait de la réglementation locale.
+
+Règles de patrimonialité pour la zone (extrait du référentiel BDCstatut) :
+${Array.from(localRules.entries()).map(([name, status]) => `- ${name}: ${status}`).join('\n')}
+
+Liste des espèces observées sur le terrain (via GBIF) :
+${uniqueSpeciesNames.join(', ')}
+
+Tâche : Compare la liste des espèces observées avec les règles de patrimonialité. Prends en compte les variations taxonomiques (ex: un nom avec ou sans l'auteur comme 'L.' doit correspondre). Retourne UNIQUEMENT un objet JSON valide contenant les espèces de la liste observée qui sont patrimoniales. Le format doit être: { "Nom de l'espèce": "Statut de patrimonialité" }. Si aucune espèce ne correspond, retourne un objet JSON vide {}.`;
+
+        // Clé API Gemini directement intégrée dans le code.
+        const GEMINI_API_KEY = "AIzaSyDDv4amCchpTXGqz6FGuY8mxPClkw-uwMs";
+        if (!GEMINI_API_KEY) throw new Error("La clé d'API Gemini n'est pas configurée.");
         
-        const patrimonialMap = {};
-        const speciesForAIAnalysis = [];
-
-        // Étape 1 & 2: Normalisation et Correspondance Directe
-        uniqueSpeciesNames.forEach(speciesName => {
-            const normalizedOccName = normalizeSpeciesName(speciesName);
-            if (localRules.has(normalizedOccName)) {
-                patrimonialMap[speciesName] = localRules.get(normalizedOccName).label;
-            } else {
-                speciesForAIAnalysis.push(speciesName);
-            }
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
+        
+        const geminiResp = await fetch(geminiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
         });
 
-        // Étape 3: Analyse par IA (uniquement si nécessaire et sur les cas restants)
-        if (speciesForAIAnalysis.length > 0) {
-            const prompt = `Tu es un expert botaniste. Compare une liste d'espèces observées avec une liste de référence d'espèces patrimoniales. Identifie les correspondances même en cas de synonymie ou de variations taxonomiques.
-
-Liste des espèces patrimoniales de référence (nom normalisé: statut):
-${Array.from(localRules.entries()).map(([name, data]) => `- ${name}: ${data.label}`).join('\n')}
-
-Liste des espèces observées à analyser:
-${speciesForAIAnalysis.join(', ')}
-
-Tâche : Retourne UNIQUEMENT un objet JSON valide contenant les espèces observées qui correspondent à la liste de référence. Le format doit être: { "Nom de l'espèce observée": "Statut de l'espèce de référence correspondante" }. Si aucune ne correspond, retourne {}.`;
-
-            const GEMINI_API_KEY = "AIzaSyDDv4amCchpTXGqz6FGuY8mxPClkw-uwMs";
-            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
-            
-            const geminiResp = await fetch(geminiUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: { "temperature": 0 }
-                })
-            });
-
-            if (geminiResp.ok) {
-                const geminiData = await geminiResp.json();
-                if (geminiData.candidates && geminiData.candidates.length > 0 && geminiData.candidates[0].content.parts[0].text) {
-                   const jsonString = geminiData.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
-                   try {
-                       const aiResults = JSON.parse(jsonString);
-                       // Étape 4: Agrégation
-                       Object.assign(patrimonialMap, aiResults);
-                   } catch(e) {
-                       console.error("Erreur de parsing du JSON de Gemini:", e, jsonString);
-                   }
-                }
-            } else {
-                 console.error("Erreur de l'API Gemini:", await geminiResp.text());
-            }
+        if (!geminiResp.ok) {
+            const errorBody = await geminiResp.text();
+            console.error("Erreur de l'API Gemini:", errorBody);
+            throw new Error('Erreur de l\'API Gemini.');
         }
+        
+        const geminiData = await geminiResp.json();
+        const jsonString = geminiData.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
+        const patrimonialMap = JSON.parse(jsonString);
 
         return {
             statusCode: 200,
