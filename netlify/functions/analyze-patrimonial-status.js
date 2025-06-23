@@ -60,7 +60,8 @@ ${uniqueSpeciesNames.join(', ')}
 
 Tâche : Compare la liste des espèces observées avec les règles de patrimonialité. Prends en compte les variations taxonomiques (ex: un nom avec ou sans l'auteur comme 'L.' doit correspondre). Retourne UNIQUEMENT un objet JSON valide contenant les espèces de la liste observée qui sont patrimoniales. Le format doit être: { "Nom de l'espèce": "Statut de patrimonialité" }. Si aucune espèce ne correspond, retourne un objet JSON vide {}.`;
 
-        const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+        // Clé API Gemini directement intégrée dans le code.
+        const GEMINI_API_KEY = "AIzaSyDDv4amCchpTXGqz6FGuY8mxPClkw-uwMs";
         if (!GEMINI_API_KEY) throw new Error("La clé d'API Gemini n'est pas configurée.");
         
         const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
