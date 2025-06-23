@@ -8,18 +8,19 @@ const statusDataRaw = fs.readFileSync(csvPath, 'utf8');
 
 /**
  * Normalise un nom d'espèce pour faciliter la comparaison.
- * Supprime les auteurs, les indicateurs de sous-espèce/variété et passe en minuscule.
- * @param {string} name - Le nom scientifique de l'espèce.
- * @returns {string} Le nom normalisé.
+ * Utilise une regex pour extraire le nom binomial/trinomial (ex: "genus species", "genus species subspecies")
+ * et ignorer les auteurs, années, et autres informations qui suivent.
+ * @param {string} name - Le nom scientifique complet.
+ * @returns {string} Le nom taxonomique de base, normalisé.
  */
 const normalizeSpeciesName = (name) => {
     if (!name) return '';
-    return name
-        .toLowerCase()
-        .replace(/ subsp\.| ssp\.| var\.| f\./g, ' ') // Remplace les indicateurs taxonomiques
-        .replace(/ L\. Bory| L\.| DC\.| Mill\.| \(L\.\) Pers\./g, '') // Supprime les auteurs communs
-        .replace(/\s+/g, ' ') // Remplace les espaces multiples par un seul
-        .trim();
+    const lowerCaseName = name.toLowerCase();
+    // Regex pour capturer le nom en 1, 2 ou 3 parties (Genre, Genre espece, Genre espece ssp)
+    const match = lowerCaseName.match(/^([a-z]+\s[a-z]+(\s[a-z]+)?)/);
+    
+    // Si une correspondance est trouvée, la retourner. Sinon, retourner le nom nettoyé comme fallback.
+    return match ? match[0] : lowerCaseName.replace(/\s+/g, ' ').trim();
 };
 
 const parseStatusData = () => {
@@ -47,7 +48,8 @@ exports.handler = async function(event) {
 
     try {
         const { discoveredOccurrences, coords } = JSON.parse(event.body);
-        const uniqueSpecies = [...new Map(discoveredOccurrences.map(o => o.species && [o.species, o])).values()].filter(Boolean);
+        // Obtenir la liste des noms d'espèces uniques, en filtrant les entrées invalides.
+        const uniqueSpeciesNames = [...new Set(discoveredOccurrences.map(o => o.species).filter(Boolean))];
 
         const geoResp = await fetch(`https://geo.api.gouv.fr/communes?lat=${coords.latitude}&lon=${coords.longitude}&fields=departement,region`);
         const [info] = await geoResp.json();
@@ -62,7 +64,7 @@ exports.handler = async function(event) {
                 const type = (row.LB_TYPE_STATUT || '').toLowerCase();
                 if ((type.includes('liste rouge') && threatCodes.has(row.CODE_STATUT)) || type.includes('protection') || type.includes('directive')) {
                     const normalizedName = normalizeSpeciesName(row.LB_NOM);
-                    if (!localRules.has(normalizedName)) {
+                    if (normalizedName && !localRules.has(normalizedName)) {
                         localRules.set(normalizedName, { originalName: row.LB_NOM, label: row.LABEL_STATUT });
                     }
                 }
@@ -73,16 +75,16 @@ exports.handler = async function(event) {
         const speciesForAIAnalysis = [];
 
         // Étape 1 & 2: Normalisation et Correspondance Directe
-        uniqueSpecies.forEach(occ => {
-            const normalizedOccName = normalizeSpeciesName(occ.species);
+        uniqueSpeciesNames.forEach(speciesName => {
+            const normalizedOccName = normalizeSpeciesName(speciesName);
             if (localRules.has(normalizedOccName)) {
-                patrimonialMap[occ.species] = localRules.get(normalizedOccName).label;
+                patrimonialMap[speciesName] = localRules.get(normalizedOccName).label;
             } else {
-                speciesForAIAnalysis.push(occ.species);
+                speciesForAIAnalysis.push(speciesName);
             }
         });
 
-        // Étape 3: Analyse par IA (uniquement si nécessaire)
+        // Étape 3: Analyse par IA (uniquement si nécessaire et sur les cas restants)
         if (speciesForAIAnalysis.length > 0) {
             const prompt = `Tu es un expert botaniste. Compare une liste d'espèces observées avec une liste de référence d'espèces patrimoniales. Identifie les correspondances même en cas de synonymie ou de variations taxonomiques.
 
@@ -100,26 +102,26 @@ Tâche : Retourne UNIQUEMENT un objet JSON valide contenant les espèces observ�
             const geminiResp = await fetch(geminiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                // Ajout du paramètre "temperature" pour réduire l'aléatoire et fiabiliser la sortie
                 body: JSON.stringify({ 
                     contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: {
-                        "temperature": 0
-                    }
+                    generationConfig: { "temperature": 0 }
                 })
             });
 
             if (geminiResp.ok) {
                 const geminiData = await geminiResp.json();
-                if (geminiData.candidates && geminiData.candidates.length > 0) {
+                if (geminiData.candidates && geminiData.candidates.length > 0 && geminiData.candidates[0].content.parts[0].text) {
                    const jsonString = geminiData.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
-                   const aiResults = JSON.parse(jsonString);
-                   // Étape 4: Agrégation
-                   Object.assign(patrimonialMap, aiResults);
+                   try {
+                       const aiResults = JSON.parse(jsonString);
+                       // Étape 4: Agrégation
+                       Object.assign(patrimonialMap, aiResults);
+                   } catch(e) {
+                       console.error("Erreur de parsing du JSON de Gemini:", e, jsonString);
+                   }
                 }
             } else {
                  console.error("Erreur de l'API Gemini:", await geminiResp.text());
-                 // On ne bloque pas le processus, on retourne les résultats du matching direct
             }
         }
 
