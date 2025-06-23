@@ -1,0 +1,8 @@
+{
+  "name": "biblio-patri-standalone",
+  "version": "1.0.0",
+  "description": "Analyse d'espèces patrimoniales à proximité",
+  "dependencies": {
+    "node-fetch": "^2.7.0"
+  }
+}
