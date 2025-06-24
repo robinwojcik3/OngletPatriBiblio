@@ -338,6 +338,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             observationsTab.style.display = 'block';
             analysisTabBtn.classList.remove('active');
             observationsTabBtn.classList.add('active');
+            loadObservations();
         }
     };
 
@@ -392,8 +393,5 @@ document.addEventListener('DOMContentLoaded', async () => {
     useGeolocationBtn.addEventListener('click', handleGeolocationSearch);
     addressInput.addEventListener('keypress', (e) => e.key === 'Enter' && handleAddressSearch());
     analysisTabBtn.addEventListener('click', () => switchTab('analysis'));
-    observationsTabBtn.addEventListener('click', () => {
-        switchTab('observations');
-        loadObservations();
-    });
+    observationsTabBtn.addEventListener('click', () => switchTab('observations'));
 });
