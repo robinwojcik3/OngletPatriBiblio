@@ -135,7 +135,6 @@ exports.handler = async function(event) {
             }
             // Cas 2 : Statuts à portée LOCALE (non-nationaux)
             else {
-                // Logique pour statuts de protection, directives, et listes rouges locales
                 if (OLD_REGIONS_TO_DEPARTMENTS[adminName]) { // Statut d'une ancienne région
                     if (OLD_REGIONS_TO_DEPARTMENTS[adminName].includes(departmentCode)) {
                         ruleApplies = true;
@@ -151,9 +150,16 @@ exports.handler = async function(event) {
             // Étape 3 : Ajouter la règle si elle s'applique
             if (ruleApplies) {
                 if (!localRules.has(row.nom)) {
-                    // *** MODIFICATION PRINCIPALE ***
-                    // On construit un statut descriptif au lieu de juste prendre le label.
-                    const descriptiveStatus = `${row.type} (${row.adm})`;
+                    // *** MODIFICATION POUR DÉTAIL DU STATUT ***
+                    // Construction de la chaîne de caractères du statut avec plus de détails.
+                    let descriptiveStatus;
+                    if (isRedList) {
+                        // Pour les listes rouges, on inclut le code de menace (NT, VU, etc.).
+                        descriptiveStatus = `${row.type} (${row.code}) (${row.adm})`;
+                    } else {
+                        // Pour les protections et directives, on utilise le label complet qui contient la référence réglementaire.
+                        descriptiveStatus = row.label;
+                    }
                     localRules.set(row.nom, descriptiveStatus);
                 }
             }
