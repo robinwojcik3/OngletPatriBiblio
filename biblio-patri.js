@@ -1,5 +1,5 @@
 // /biblio-patri.js
-// Version finale utilisant la fonction serverless "Analyste" pour une fiabilité maximale.
+// Version finale utilisant la fonction serverless "Analyste" et une cartographie détaillée en 3 étapes.
 
 document.addEventListener('DOMContentLoaded', () => {
      // --- 1. Injection des styles ---
@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
      let map = null;
      let speciesLayers = new Map();
-     const SEARCH_RADIUS_KM = 2 ; // *** MODIFICATION : Rayon de recherche changé de 3 à 2 km. ***
+     const SEARCH_RADIUS_KM = 2;
      const SPECIES_COLORS = ['#E6194B', '#3CB44B', '#FFE119', '#4363D8', '#F58231', '#911EB4', '#46F0F0', '#F032E6', '#BCF60C', '#FABEBE', '#800000', '#AA6E28', '#000075', '#A9A9A9'];
      
      const setStatus = (message, isLoading = false) => {
@@ -62,12 +62,74 @@ document.addEventListener('DOMContentLoaded', () => {
      const initializeMap = (coords) => {
          if (map) map.remove();
          mapContainer.style.display = 'block';
-         map = L.map(mapContainer).setView([coords.latitude, coords.longitude], 13); // Zoom légèrement augmenté pour un rayon plus petit
+         map = L.map(mapContainer).setView([coords.latitude, coords.longitude], 13);
          L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: 'Map data: © OpenStreetMap contributors' }).addTo(map);
          L.circle([coords.latitude, coords.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
      };
+    
+    // *** NOUVEAU *** : Fonction dédiée à la cartographie exhaustive des espèces patrimoniales.
+    const fetchAndDisplayAllPatrimonialOccurrences = async (patrimonialMap, wkt, initialOccurrences) => {
+        const speciesNames = Object.keys(patrimonialMap);
+        if (speciesNames.length === 0) return;
 
-     const displayResults = (occurrences, patrimonialMap) => {
+        setStatus("Étape 3/3: Cartographie détaillée des espèces patrimoniales...", true);
+
+        // Effacer les marqueurs de l'inventaire initial pour les remplacer.
+        speciesLayers.forEach(layer => map.removeLayer(layer));
+        speciesLayers.clear();
+        
+        // Créer un index rapide pour trouver le taxonKey (plus fiable que le nom pour les requêtes)
+        const taxonKeyMap = new Map();
+        initialOccurrences.forEach(occ => {
+            if (occ.species && occ.speciesKey && !taxonKeyMap.has(occ.species)) {
+                taxonKeyMap.set(occ.species, occ.speciesKey);
+            }
+        });
+
+        for (const [index, speciesName] of speciesNames.entries()) {
+            const taxonKey = taxonKeyMap.get(speciesName);
+            if (!taxonKey) continue; // On passe si on ne trouve pas de clé de taxon
+
+            let allSpeciesOccurrences = [];
+            const maxPages = 10; // On s'autorise plus de pages pour une recherche ciblée.
+            const limit = 1000;
+            let endOfRecords = false;
+
+            for (let page = 0; page < maxPages && !endOfRecords; page++) {
+                const offset = page * limit;
+                const gbifUrl = `https://api.gbif.org/v1/occurrence/search?limit=${limit}&offset=${offset}&geometry=${encodeURIComponent(wkt)}&taxonKey=${taxonKey}`;
+                try {
+                    const resp = await fetch(gbifUrl);
+                    if (!resp.ok) break;
+                    const pageData = await resp.json();
+                    if (pageData.results?.length > 0) {
+                        allSpeciesOccurrences = allSpeciesOccurrences.concat(pageData.results);
+                    }
+                    endOfRecords = pageData.endOfRecords;
+                } catch (e) {
+                    console.error("Erreur durant la cartographie détaillée pour :", speciesName, e);
+                    break; 
+                }
+            }
+
+            if (allSpeciesOccurrences.length > 0) {
+                const color = SPECIES_COLORS[index % SPECIES_COLORS.length];
+                const icon = L.divIcon({ html: `<div style="background-color:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 3px #000;"></div>`, className:'custom-div-icon', iconSize:[16,16] });
+                const layerGroup = L.layerGroup();
+                allSpeciesOccurrences.forEach(occ => {
+                    if (occ.decimalLatitude && occ.decimalLongitude) {
+                       L.marker([occ.decimalLatitude, occ.decimalLongitude], { icon }).addTo(layerGroup).bindPopup(`<b><i>${speciesName}</i></b>`);
+                    }
+                });
+                layerGroup.addTo(map);
+                speciesLayers.set(speciesName, layerGroup);
+            }
+        }
+        setStatus(`${speciesNames.length} espèce(s) patrimoniale(s) cartographiée(s).`, false);
+    };
+
+
+     const displayResults = (occurrences, patrimonialMap, wkt) => {
          resultsContainer.innerHTML = '';
          if (map) {
              speciesLayers.forEach(layer => map.removeLayer(layer));
@@ -89,31 +151,23 @@ document.addEventListener('DOMContentLoaded', () => {
              setStatus(`Aucune occurrence d'espèce patrimoniale trouvée dans ce rayon de ${SEARCH_RADIUS_KM} km.`);
              return;
          }
-         setStatus(`${Object.keys(patrimonialMap).length} espèce(s) patrimoniale(s) trouvée(s) à proximité.`);
+         setStatus(`${Object.keys(patrimonialMap).length} espèce(s) patrimoniale(s) trouvée(s). Lancement de la cartographie détaillée...`);
          
          const tableBody = document.createElement('tbody');
-         sortedSpecies.forEach((species, index) => {
+         Object.keys(patrimonialMap).sort().forEach((speciesName, index) => {
              const color = SPECIES_COLORS[index % SPECIES_COLORS.length];
-             const icon = L.divIcon({ html: `<div style="background-color:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 3px #000;"></div>`, className:'custom-div-icon', iconSize:[16,16] });
-             const layerGroup = L.layerGroup();
-             species.occurrences.forEach(occ => L.marker([occ.lat, occ.lon], { icon }).addTo(layerGroup).bindPopup(`<b><i>${species.name}</i></b>`));
-             layerGroup.addTo(map);
-             speciesLayers.set(species.name, layerGroup);
-
              const row = tableBody.insertRow();
-             const statusCellContent = Array.isArray(species.label) ? species.label.join('<br>') : species.label;
-             row.innerHTML = `<td><span class="legend-color" style="background-color:${color};"></span><i>${species.name}</i></td><td>${statusCellContent}</td>`;
-             row.addEventListener('click', () => {
-                 if (speciesLayers.has(species.name)) {
-                     const bounds = speciesLayers.get(species.name).getBounds();
-                     if (bounds.isValid()) map.flyToBounds(bounds, { padding: [50, 50], maxZoom: 14 });
-                 }
-             });
+             const statusCellContent = Array.isArray(patrimonialMap[speciesName]) ? patrimonialMap[speciesName].join('<br>') : patrimonialMap[speciesName];
+             row.innerHTML = `<td><span class="legend-color" style="background-color:${color};"></span><i>${speciesName}</i></td><td>${statusCellContent}</td>`;
          });
+
          const table = document.createElement('table');
          table.innerHTML = `<thead><tr><th>Nom scientifique</th><th>Statut de patrimonialité</th></tr></thead>`;
          table.appendChild(tableBody);
          resultsContainer.appendChild(table);
+
+         // Lancement de la cartographie exhaustive après affichage du tableau.
+         fetchAndDisplayAllPatrimonialOccurrences(patrimonialMap, wkt, occurrences);
      };
 
      const runAnalysis = async (coords) => {
@@ -122,51 +176,39 @@ document.addEventListener('DOMContentLoaded', () => {
              mapContainer.style.display = 'none';
              initializeMap(coords);
 
-             // --- Logique de pagination pour GBIF ---
              setStatus("Étape 1/2: Inventaire de la flore locale via GBIF...", true);
              
              const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
              let allOccurrences = [];
-             const maxPages = 6; // *** MODIFICATION : Nombre de pages augmenté de 3 à 6. ***
+             const maxPages = 6;
              const limit = 1000;
 
              for (let page = 0; page < maxPages; page++) {
                  const offset = page * limit;
                  setStatus(`Étape 1/2: Inventaire de la flore locale via GBIF... (Page ${page + 1}/${maxPages})`, true);
-                 
                  const gbifUrl = `https://api.gbif.org/v1/occurrence/search?limit=${limit}&offset=${offset}&geometry=${encodeURIComponent(wkt)}&kingdomKey=6`;
                  const gbifResp = await fetch(gbifUrl);
                  if (!gbifResp.ok) throw new Error("L'API GBIF est indisponible.");
-                 
                  const pageData = await gbifResp.json();
-                 if (pageData.results && pageData.results.length > 0) {
+                 if (pageData.results?.length > 0) {
                      allOccurrences = allOccurrences.concat(pageData.results);
                  }
-                 
-                 if (pageData.endOfRecords) {
-                     break; 
-                 }
+                 if (pageData.endOfRecords) { break; }
              }
              
              console.log(`Collecte terminée. ${allOccurrences.length} occurrences totales récupérées depuis GBIF.`);
-
-             if (allOccurrences.length === 0) {
-                 throw new Error("Aucune occurrence de plante trouvée à proximité.");
-             }
+             if (allOccurrences.length === 0) { throw new Error("Aucune occurrence de plante trouvée à proximité."); }
              
              setStatus("Étape 2/2: Qualification patrimoniale par l'Analyste Augmenté...", true);
              const analysisResp = await fetch('/.netlify/functions/analyze-patrimonial-status', {
                  method: 'POST',
                  body: JSON.stringify({ discoveredOccurrences: allOccurrences, coords })
              });
-             if (!analysisResp.ok) {
-                 const errBody = await analysisResp.text();
-                 throw new Error(`Le service d'analyse a échoué: ${errBody}`);
-             }
+             if (!analysisResp.ok) { const errBody = await analysisResp.text(); throw new Error(`Le service d'analyse a échoué: ${errBody}`); }
              const patrimonialMap = await analysisResp.json();
              
-             setStatus(null);
-             displayResults(allOccurrences, patrimonialMap);
+             // On passe le WKT à la fonction d'affichage pour qu'elle puisse le réutiliser.
+             displayResults(allOccurrences, patrimonialMap, wkt);
 
          } catch (error) {
              console.error("Erreur durant l'analyse:", error);
