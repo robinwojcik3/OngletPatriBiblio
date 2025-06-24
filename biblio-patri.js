@@ -1,5 +1,5 @@
 // /biblio-patri.js
-// Version finale avec contrôle de fonds de carte et gestion des points superposés.
+// Version finale avec indexation côté client, choix du fond de carte et pop-ups groupés.
 
 document.addEventListener('DOMContentLoaded', async () => {
     // --- 1. Injection des styles ---
@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     styleElement.textContent = pageStyles;
     document.head.appendChild(styleElement);
     
-    // --- Déclaration des variables et constantes globales ---
+    // --- 2. Déclaration des variables et constantes globales ---
     const statusDiv = document.getElementById('status');
     const resultsContainer = document.getElementById('results');
     const mapContainer = document.getElementById('map');
@@ -43,6 +43,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const useGeolocationBtn = document.getElementById('use-geolocation-btn');
 
     let map = null;
+    let layerControl = null; // *** NOUVEAU *** : Variable pour le contrôleur de couches
     let speciesLayers = new Map();
     let rulesByTaxonIndex = new Map();
     const SEARCH_RADIUS_KM = 2;
@@ -51,6 +52,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const nonPatrimonialRedlistCodes = new Set(['LC', 'DD', 'NA', 'NE']);
     const OLD_REGIONS_TO_DEPARTMENTS = { 'Alsace': ['67', '68'], 'Aquitaine': ['24', '33', '40', '47', '64'], 'Auvergne': ['03', '15', '43', '63'], 'Basse-Normandie': ['14', '50', '61'], 'Bourgogne': ['21', '58', '71', '89'], 'Champagne-Ardenne': ['08', '10', '51', '52'], 'Franche-Comté': ['25', '39', '70', '90'], 'Haute-Normandie': ['27', '76'], 'Languedoc-Roussillon': ['11', '30', '34', '48', '66'], 'Limousin': ['19', '23', '87'], 'Lorraine': ['54', '55', '57', '88'], 'Midi-Pyrénées': ['09', '12', '31', '32', '46', '65', '81', '82'], 'Nord-Pas-de-Calais': ['59', '62'], 'Picardie': ['02', '60', '80'], 'Poitou-Charentes': ['16', '17', '79', '86'], 'Rhône-Alpes': ['01', '07', '26', '38', '42', '69', '73', '74'] };
     const ADMIN_NAME_TO_CODE_MAP = { "France": "FR", "Ain": "01", "Aisne": "02", "Allier": "03", "Alpes-de-Haute-Provence": "04", "Hautes-Alpes": "05", "Alpes-Maritimes": "06", "Ardèche": "07", "Ardennes": "08", "Ariège": "09", "Aube": "10", "Aude": "11", "Aveyron": "12", "Bouches-du-Rhône": "13", "Calvados": "14", "Cantal": "15", "Charente": "16", "Charente-Maritime": "17", "Cher": "18", "Corrèze": "19", "Corse-du-Sud": "2A", "Haute-Corse": "2B", "Côte-d'Or": "21", "Côtes-d'Armor": "22", "Creuse": "23", "Dordogne": "24", "Doubs": "25", "Drôme": "26", "Eure": "27", "Eure-et-Loir": "28", "Finistère": "29", "Gard": "30", "Haute-Garonne": "31", "Gers": "32", "Gironde": "33", "Hérault": "34", "Ille-et-Vilaine": "35", "Indre": "36", "Indre-et-Loire": "37", "Isère": "38", "Jura": "39", "Landes": "40", "Loir-et-Cher": "41", "Loire": "42", "Haute-Loire": "43", "Loire-Atlantique": "44", "Loiret": "45", "Lot": "46", "Lot-et-Garonne": "47", "Lozère": "48", "Maine-et-Loire": "49", "Manche": "50", "Marne": "51", "Haute-Marne": "52", "Mayenne": "53", "Meurthe-et-Moselle": "54", "Meuse": "55", "Morbihan": "56", "Moselle": "57", "Nièvre": "58", "Nord": "59", "Oise": "60", "Orne": "61", "Pas-de-Calais": "62", "Puy-de-Dôme": "63", "Pyrénées-Atlantiques": "64", "Hautes-Pyrénées": "65", "Pyrénées-Orientales": "66", "Bas-Rhin": "67", "Haut-Rhin": "68", "Rhône": "69", "Haute-Saône": "70", "Saône-et-Loire": "71", "Sarthe": "72", "Savoie": "73", "Haute-Savoie": "74", "Paris": "75", "Seine-Maritime": "76", "Seine-et-Marne": "77", "Yvelines": "78", "Deux-Sèvres": "79", "Somme": "80", "Tarn": "81", "Tarn-et-Garonne": "82", "Var": "83", "Vaucluse": "84", "Vendée": "85", "Vienne": "86", "Haute-Vienne": "87", "Vosges": "88", "Yonne": "89", "Territoire de Belfort": "90", "Essonne": "91", "Hauts-de-Seine": "92", "Seine-Saint-Denis": "93", "Val-de-Marne": "94", "Val-d'Oise": "95", "Auvergne-Rhône-Alpes": "84", "Bourgogne-Franche-Comté": "27", "Bretagne": "53", "Centre-Val de Loire": "24", "Corse": "94", "Grand Est": "44", "Hauts-de-France": "32", "Île-de-France": "11", "Normandie": "28", "Nouvelle-Aquitaine": "75", "Occitanie": "76", "Pays de la Loire": "52", "Provence-Alpes-Côte d'Azur": "93", "Guadeloupe": "01", "Martinique": "02", "Guyane": "03", "La Réunion": "04", "Mayotte": "06" };
+    // *** NOUVEAU *** : Définition des fonds de carte
+    const baseLayers = {
+        "Topographique": L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)' }),
+        "Satellite": L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community' })
+    };
 
     const setStatus = (message, isLoading = false) => {
         statusDiv.innerHTML = '';
@@ -69,15 +75,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         const index = new Map();
         lines.forEach(line => {
             const cols = line.split(';');
-            const rowData = {
-                adm: cols[indices.adm]?.trim().replace(/"/g, '') || '', nom: cols[indices.nom]?.trim().replace(/"/g, '') || '',
-                code: cols[indices.code]?.trim().replace(/"/g, '') || '', type: cols[indices.type]?.trim().replace(/"/g, '') || '',
-                label: cols[indices.label]?.trim().replace(/"/g, '') || ''
-            };
-            if (rowData.nom && rowData.type) {
-                if (!index.has(rowData.nom)) { index.set(rowData.nom, []); }
-                index.get(rowData.nom).push(rowData);
-            }
+            const rowData = { adm: cols[indices.adm]?.trim().replace(/"/g, '') || '', nom: cols[indices.nom]?.trim().replace(/"/g, '') || '', code: cols[indices.code]?.trim().replace(/"/g, '') || '', type: cols[indices.type]?.trim().replace(/"/g, '') || '', label: cols[indices.label]?.trim().replace(/"/g, '') || '' };
+            if (rowData.nom && rowData.type) { if (!index.has(rowData.nom)) { index.set(rowData.nom, []); } index.get(rowData.nom).push(rowData); }
         });
         return index;
     };
@@ -97,42 +96,29 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
-    // --- MODIFICATION : Ajout de la gestion des fonds de carte ---
     const initializeMap = (coords) => {
-        if (map) map.remove();
+        if (map) { map.remove(); }
         mapContainer.style.display = 'block';
-
-        const topoMap = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-            attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)'
-        });
-
-        const satelliteMap = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            attribution: 'Tiles © Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-        });
-
-        map = L.map(mapContainer, {
-            center: [coords.latitude, coords.longitude],
-            zoom: 13,
-            layers: [topoMap] // Fond de carte par défaut
-        });
-
-        const baseMaps = {
-            "Topographique": topoMap,
-            "Satellite": satelliteMap
-        };
-
-        L.control.layers(baseMaps).addTo(map);
+        map = L.map(mapContainer).setView([coords.latitude, coords.longitude], 13);
+        baseLayers["Topographique"].addTo(map); // Fond de carte par défaut
         L.circle([coords.latitude, coords.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
+        
+        // *** NOUVEAU *** : Ajout du contrôleur de couches
+        if (layerControl) { layerControl.remove(); }
+        layerControl = L.control.layers(baseLayers).addTo(map);
     };
    
-    // --- MODIFICATION : Refonte complète pour la gestion des points superposés ---
     const fetchAndDisplayAllPatrimonialOccurrences = async (patrimonialMap, wkt, initialOccurrences) => {
         const speciesNames = Object.keys(patrimonialMap);
         if (speciesNames.length === 0) return;
 
         setStatus("Étape 3/3: Cartographie détaillée des espèces patrimoniales...", true);
 
-        speciesLayers.forEach(layer => map.removeLayer(layer));
+        // Effacer les couches existantes
+        speciesLayers.forEach(layer => {
+            if (layerControl) layerControl.removeLayer(layer);
+            map.removeLayer(layer);
+        });
         speciesLayers.clear();
         
         const taxonKeyMap = new Map();
@@ -141,13 +127,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 taxonKeyMap.set(occ.species, occ.speciesKey);
             }
         });
+        
+        // *** NOUVEAU *** : Regrouper toutes les occurrences par coordonnées
+        const occurrencesByCoord = new Map();
 
-        let allDetailedOccurrences = [];
         for (const [index, speciesName] of speciesNames.entries()) {
             const taxonKey = taxonKeyMap.get(speciesName);
             if (!taxonKey) continue;
 
-            const maxPages = 10; const limit = 1000; let endOfRecords = false;
+            let allSingleSpeciesOccs = [];
+            const maxPages = 10;
+            const limit = 1000;
+            let endOfRecords = false;
+
             for (let page = 0; page < maxPages && !endOfRecords; page++) {
                 const offset = page * limit;
                 const gbifUrl = `https://api.gbif.org/v1/occurrence/search?limit=${limit}&offset=${offset}&geometry=${encodeURIComponent(wkt)}&taxonKey=${taxonKey}`;
@@ -156,69 +148,53 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (!resp.ok) break;
                     const pageData = await resp.json();
                     if (pageData.results?.length > 0) {
-                        pageData.results.forEach(occ => {
-                            // On enrichit l'occurrence avec le nom de l'espèce pour la suite
-                            if (occ.decimalLatitude && occ.decimalLongitude) {
-                                allDetailedOccurrences.push({ ...occ, speciesName });
-                            }
-                        });
+                        allSingleSpeciesOccs = allSingleSpeciesOccs.concat(pageData.results);
                     }
                     endOfRecords = pageData.endOfRecords;
                 } catch (e) { console.error("Erreur durant la cartographie détaillée pour :", speciesName, e); break; }
             }
-        }
-        
-        // Grouper les occurrences par coordonnées
-        const occurrencesByCoord = new Map();
-        allDetailedOccurrences.forEach(occ => {
-            const coordKey = `${occ.decimalLatitude},${occ.decimalLongitude}`;
-            if (!occurrencesByCoord.has(coordKey)) {
-                occurrencesByCoord.set(coordKey, { lat: occ.decimalLatitude, lon: occ.decimalLongitude, species: new Set() });
-            }
-            occurrencesByCoord.get(coordKey).species.add(occ.speciesName);
-        });
-
-        // Dessiner les marqueurs groupés
-        const markersLayerGroup = L.layerGroup();
-        const speciesNameToIndex = new Map(speciesNames.map((name, i) => [name, i]));
-
-        occurrencesByCoord.forEach(pointData => {
-            const speciesList = Array.from(pointData.species);
-            let color;
-            let iconHtml;
-
-            if (speciesList.length > 1) {
-                // Couleur neutre pour les points multiples
-                color = '#757575'; 
-                iconHtml = `<div style="background-color:${color};width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 0 4px #000;display:flex;justify-content:center;align-items:center;color:white;font-size:9px;font-weight:bold;">${speciesList.length}</div>`;
-            } else {
-                const speciesName = speciesList[0];
-                const speciesIndex = speciesNameToIndex.get(speciesName) ?? 0;
-                color = SPECIES_COLORS[speciesIndex % SPECIES_COLORS.length];
-                iconHtml = `<div style="background-color:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 3px #000;"></div>`;
-            }
-
-            const icon = L.divIcon({ html: iconHtml, className:'custom-div-icon', iconSize:[16,16] });
-
-            let popupContent = '<b>Espèces patrimoniales :</b><ul>';
-            speciesList.forEach(name => {
-                popupContent += `<li><i>${name}</i></li>`;
+            
+            // Remplir la structure de regroupement
+            allSingleSpeciesOccs.forEach(occ => {
+                if (occ.decimalLatitude && occ.decimalLongitude) {
+                    const coordKey = `${occ.decimalLatitude},${occ.decimalLongitude}`;
+                    if (!occurrencesByCoord.has(coordKey)) {
+                        occurrencesByCoord.set(coordKey, { speciesSet: new Set(), firstSpeciesIndex: index });
+                    }
+                    occurrencesByCoord.get(coordKey).speciesSet.add(speciesName);
+                }
             });
+        }
+
+        // *** NOUVEAU *** : Afficher les marqueurs groupés
+        const allMarkersGroup = L.layerGroup();
+        for (const [coordKey, data] of occurrencesByCoord.entries()) {
+            const [lat, lon] = coordKey.split(',');
+            const { speciesSet, firstSpeciesIndex } = data;
+            
+            const color = SPECIES_COLORS[firstSpeciesIndex % SPECIES_COLORS.length];
+            const icon = L.divIcon({ html: `<div style="background-color:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 3px #000;"></div>`, className:'custom-div-icon', iconSize:[16,16] });
+            
+            let popupContent = '<b>Espèces patrimoniales :</b><ul>';
+            speciesSet.forEach(name => { popupContent += `<li><i>${name}</i></li>`; });
             popupContent += '</ul>';
 
-            L.marker([pointData.lat, pointData.lon], { icon })
-             .bindPopup(popupContent)
-             .addTo(markersLayerGroup);
-        });
+            L.marker([lat, lon], { icon }).bindPopup(popupContent).addTo(allMarkersGroup);
+        }
         
-        markersLayerGroup.addTo(map);
+        // Ajouter le groupe de marqueurs à la carte et au contrôleur de couches
+        allMarkersGroup.addTo(map);
+        layerControl.addOverlay(allMarkersGroup, "Espèces Patrimoniales");
+        speciesLayers.set("all_patrimonial", allMarkersGroup);
 
         setStatus(`${speciesNames.length} espèce(s) patrimoniale(s) cartographiée(s).`, false);
     };
 
     const displayResults = (occurrences, patrimonialMap, wkt) => {
         resultsContainer.innerHTML = '';
-        if (map) { speciesLayers.forEach(layer => map.removeLayer(layer)); }
+        if (map) {
+            speciesLayers.forEach(layer => map.removeLayer(layer));
+        }
         speciesLayers.clear();
         
         if (Object.keys(patrimonialMap).length === 0) {
@@ -252,7 +228,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             setStatus("Étape 1/2: Inventaire de la flore locale via GBIF...", true);
             const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
             let allOccurrences = [];
-            const maxPages = 12; const limit = 1000;
+            const maxPages = 12;
+            const limit = 1000;
             for (let page = 0; page < maxPages; page++) {
                 const offset = page * limit;
                 setStatus(`Étape 1/2: Inventaire de la flore locale via GBIF... (Page ${page + 1}/${maxPages})`, true);
@@ -279,12 +256,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                         if (ADMIN_NAME_TO_CODE_MAP[row.adm] === 'FR' || type.includes('nationale')) { ruleApplies = true; } 
                         else if (OLD_REGIONS_TO_DEPARTMENTS[row.adm]?.includes(departement.code)) { ruleApplies = true; } 
                         else { const adminCode = ADMIN_NAME_TO_CODE_MAP[row.adm]; if (adminCode === departement.code || adminCode === region.code) { ruleApplies = true; } }
-
                         if (ruleApplies) {
                             if (nonPatrimonialLabels.has(row.label) || type.includes('déterminante znieff')) { continue; }
                             const isRedList = type.includes('liste rouge');
                             if (isRedList && nonPatrimonialRedlistCodes.has(row.code)) { continue; }
-
                             const ruleKey = `${row.nom}|${row.type}|${row.adm}`;
                             if (!relevantRules.has(ruleKey)) {
                                 const descriptiveStatus = isRedList ? `${row.type} (${row.code}) (${row.adm})` : row.label;
@@ -303,6 +278,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const patrimonialMap = await analysisResp.json();
             
             displayResults(allOccurrences, patrimonialMap, wkt);
+
         } catch (error) {
             console.error("Erreur durant l'analyse:", error);
             setStatus(`Erreur : ${error.message}`);
@@ -331,6 +307,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         } catch(error) { setStatus(`Erreur de géolocalisation : ${error.message}`); }
     };
     
+    // --- 6. DÉMARRAGE DE L'APPLICATION ---
     await initializeApp();
     searchAddressBtn.addEventListener('click', handleAddressSearch);
     useGeolocationBtn.addEventListener('click', handleGeolocationSearch);
