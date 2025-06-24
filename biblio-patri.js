@@ -24,6 +24,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         html[data-theme="dark"] tbody tr:hover { background-color: rgba(198, 40, 40, 0.15); }
         .legend-color { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
         .search-controls { display: flex; flex-direction: column; gap: 0.75rem; padding: 1.5rem; background-color: var(--card); border-radius: 8px; border: 1px solid var(--border); margin-bottom: 2rem; }
+        .tabs { display: flex; justify-content: center; gap: 1rem; margin-bottom: 1rem; }
+        .tab-button { background: var(--card); border: 1px solid var(--border); padding: 0.5rem 1rem; cursor: pointer; border-radius: 4px; }
+        .tab-button.active { background: var(--primary); color: #fff; }
+        .tab-content { display: none; }
+        #observations-map { height: 500px; width: 100%; border-radius: 8px; border: 1px solid var(--border); box-shadow: 0 2px 6px rgba(0,0,0,.1); margin-top: 1.5rem; margin-bottom: 1.5rem; }
         .marker-cluster-icon { border-radius: 50%; border: 2px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px; text-shadow: 1px 1px 2px rgba(0,0,0,0.7); }
         .custom-popup b { display: block; margin-bottom: 5px; font-size: 1.1em; color: var(--primary); }
         .custom-popup ul { list-style: none; padding: 0; margin: 0; }
@@ -40,11 +45,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     const addressInput = document.getElementById('address-input');
     const searchAddressBtn = document.getElementById('search-address-btn');
     const useGeolocationBtn = document.getElementById('use-geolocation-btn');
+    const analysisTabBtn = document.getElementById('analysis-tab-btn');
+    const observationsTabBtn = document.getElementById('observations-tab-btn');
+    const analysisTab = document.getElementById('analysis-tab');
+    const observationsTab = document.getElementById('observations-tab');
+    const loadObservationsBtn = document.getElementById('load-observations-btn');
+    const obsStatusDiv = document.getElementById('obs-status');
+    const obsMapContainer = document.getElementById('observations-map');
 
     let map = null;
     let patrimonialLayerGroup = L.layerGroup();
+    let obsMap = null;
+    let observationsLayerGroup = L.layerGroup();
     let rulesByTaxonIndex = new Map();
     const SEARCH_RADIUS_KM = 2;
+    const OBS_RADIUS_KM = 0.1;
     const SPECIES_COLORS = ['#E6194B', '#3CB44B', '#FFE119', '#4363D8', '#F58231', '#911EB4', '#46F0F0', '#F032E6', '#BCF60C', '#FABEBE', '#800000', '#AA6E28', '#000075', '#A9A9A9'];
     const nonPatrimonialLabels = new Set(["Liste des espèces végétales sauvages pouvant faire l'objet d'une réglementation préfectorale dans les départements d'outre-mer : Article 1"]);
     const nonPatrimonialRedlistCodes = new Set(['LC', 'DD', 'NA', 'NE']);
@@ -312,10 +327,69 @@ document.addEventListener('DOMContentLoaded', async () => {
             runAnalysis(coords);
         } catch(error) { setStatus(`Erreur de géolocalisation : ${error.message}`); }
     };
+
+    const switchTab = (tab) => {
+        if (tab === 'analysis') {
+            analysisTab.style.display = 'block';
+            observationsTab.style.display = 'none';
+            analysisTabBtn.classList.add('active');
+            observationsTabBtn.classList.remove('active');
+        } else {
+            analysisTab.style.display = 'none';
+            observationsTab.style.display = 'block';
+            analysisTabBtn.classList.remove('active');
+            observationsTabBtn.classList.add('active');
+        }
+    };
+
+    const initializeObservationMap = (coords) => {
+        if (obsMap) obsMap.remove();
+        obsMapContainer.style.display = 'block';
+        const base = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors' });
+        obsMap = L.map(obsMapContainer, { center: [coords.latitude, coords.longitude], zoom: 18, layers: [base] });
+        observationsLayerGroup = L.layerGroup().addTo(obsMap);
+        L.circle([coords.latitude, coords.longitude], { radius: OBS_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(obsMap);
+    };
+
+    const displayObservations = (occurrences) => {
+        observationsLayerGroup.clearLayers();
+        occurrences.forEach(o => {
+            if (o.decimalLatitude && o.decimalLongitude && o.species) {
+                const m = L.marker([o.decimalLatitude, o.decimalLongitude]);
+                m.bindTooltip(`<i>${o.species}</i>`, { permanent: true, direction: 'right', offset: [8,0] });
+                observationsLayerGroup.addLayer(m);
+            }
+        });
+        obsStatusDiv.innerHTML = `${occurrences.length} observation(s) trouvée(s).`;
+    };
+
+    const loadObservations = async () => {
+        try {
+            obsStatusDiv.textContent = 'Récupération de votre position...';
+            obsMapContainer.style.display = 'none';
+            const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 }));
+            initializeObservationMap(coords);
+            obsStatusDiv.textContent = 'Recherche des occurrences GBIF...';
+            const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+OBS_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+OBS_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
+            const url = `https://api.gbif.org/v1/occurrence/search?limit=300&geometry=${encodeURIComponent(wkt)}`;
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error("L'API GBIF est indisponible.");
+            const data = await resp.json();
+            if (!data.results || data.results.length === 0) { obsStatusDiv.textContent = 'Aucune observation trouvée.'; return; }
+            displayObservations(data.results);
+        } catch(error) {
+            obsStatusDiv.textContent = `Erreur : ${error.message}`;
+            obsMapContainer.style.display = 'none';
+        }
+    };
     
     // --- 6. DÉMARRAGE DE L'APPLICATION ---
     await initializeApp();
+    switchTab('analysis');
     searchAddressBtn.addEventListener('click', handleAddressSearch);
     useGeolocationBtn.addEventListener('click', handleGeolocationSearch);
     addressInput.addEventListener('keypress', (e) => e.key === 'Enter' && handleAddressSearch());
+    analysisTabBtn.addEventListener('click', () => switchTab('analysis'));
+    observationsTabBtn.addEventListener('click', () => switchTab('observations'));
+    loadObservationsBtn.addEventListener('click', loadObservations);
 });
