@@ -91,7 +91,6 @@ exports.handler = async function(event) {
 
         const uniqueSpeciesNames = [...new Set(discoveredOccurrences.map(o => o.species).filter(Boolean))];
         const relevantRules = new Map();
-        const allRulesForSynonymCheck = new Map();
 
         for (const speciesName of uniqueSpeciesNames) {
             const rulesForThisTaxon = rulesByTaxonIndex.get(speciesName);
@@ -116,33 +115,27 @@ exports.handler = async function(event) {
             }
         }
         
-        // On ne construit la liste complète des règles que si nécessaire pour la vérification des synonymes par l'IA
-        if (uniqueSpeciesNames.length > relevantRules.size) {
-            rulesByTaxonIndex.forEach((rules, taxonName) => {
-                allRulesForSynonymCheck.set(taxonName, rules[0].type); // On ne passe que le type pour alléger
-            });
-        }
-
         console.log(`${relevantRules.size} règles pertinentes trouvées après pré-filtrage.`);
         const patrimonialityRules = relevantRules.size > 0 ? Array.from(relevantRules.values()).map(rule => `- ${rule.species}: ${rule.status}`).join('\n') : "Aucune règle par correspondance directe.";
 
-        // *** MODIFICATION : Le prompt inclut maintenant la gestion de la synonymie comme filet de sécurité. ***
         const prompt = `Tu es un expert botaniste pour la zone administrative française (département ${departmentCode}, région ${newRegionCode}). Ta mission est d'analyser une liste d'espèces observées et de déterminer lesquelles sont patrimoniales.
 
 **Règles Impératives d'Analyse :**
 1.  **Précision Taxonomique :** Un statut s'applique UNIQUEMENT au taxon exact (espèce, sous-espèce, variété). Le statut d'une sous-espèce ou variété ne doit pas être appliqué à l'espèce parente.
-2.  **Définition de Patrimonialité :** Une espèce est patrimoniale si elle est protégée, réglementée, ou menacée (NT, VU, EN, CR). Le statut 'LC' (Préoccupation mineure) n'est PAS patrimonial.
-3.  **Gestion des Conflits :** Si pour un même taxon, une règle 'LC' et une règle de menace coexistent pour la même liste, la règle 'LC' a priorité (considérée comme plus récente).
+2.  **Définition de Patrimonialité :** Une espèce est patrimoniale si elle est protégée, réglementée, ou menacée (NT, VU, EN, CR) sur une liste rouge pertinente. Le statut 'LC' (Préoccupation mineure) n'est PAS patrimonial.
+3.  **Gestion des Conflits :** Si pour un même taxon, une règle 'LC' et une règle de menace coexistent pour la même liste, la règle 'LC' a priorité.
 
 **1. Analyse par Correspondance Directe :**
 Voici les règles pré-filtrées pour les espèces observées. Applique les règles ci-dessus à cette liste.
 ${patrimonialityRules}
 
 **2. Analyse Complémentaire par Synonymie (si nécessaire) :**
-Pour les espèces observées qui n'ont pas de correspondance directe ci-dessus, utilise tes connaissances en taxonomie pour vérifier si elles sont des synonymes bien connus d'un taxon qui possède un statut patrimonial dans la flore française. Si un synonyme est trouvé, applique la règle correspondante.
+Pour les espèces observées qui n'ont pas de correspondance directe ci-dessus, utilise tes connaissances en taxonomie pour vérifier si elles sont des synonymes bien connus d'un taxon qui possède un statut patrimonial dans la flore française.
 
 **Tâche Finale :**
-Synthétise les résultats des deux analyses. Retourne UNIQUEMENT un objet JSON valide contenant toutes les espèces observées qui sont **effectivement patrimoniales**. Le format doit être: { "Nom de l'espèce observée": "Statut patrimonial justifié" }. Si aucune espèce n'est patrimoniale après l'analyse complète, retourne un objet JSON vide {}.
+Synthétise les résultats des deux analyses. Retourne UNIQUEMENT un objet JSON valide contenant toutes les espèces observées qui sont **effectivement patrimoniales**.
+Le format doit être : { "Nom de l'espèce observée": ["Statut 1", "Statut 2", ...] }.
+La valeur pour chaque espèce doit être un **TABLEAU de chaînes de caractères**, chaque chaîne représentant un statut patrimonial valide. Si une espèce n'a qu'un seul statut, retourne un tableau avec un seul élément. Si aucune espèce n'est patrimoniale après l'analyse complète, retourne un objet JSON vide {}.
 
 **Liste des espèces observées :**
 ${uniqueSpeciesNames.join(', ')}`;
