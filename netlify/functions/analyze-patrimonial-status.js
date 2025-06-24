@@ -12,59 +12,34 @@ const statusDataRaw = fs.readFileSync(csvPath, 'utf8');
 
 // --- 3. STRUCTURES DE DONNÉES POUR LA CORRESPONDANCE ADMINISTRATIVE ---
 
-// Structure A : Mapping des anciennes régions à leurs départements constitutifs.
-// Essentielle pour appliquer les statuts des anciennes régions à leur territoire d'origine uniquement.
 const OLD_REGIONS_TO_DEPARTMENTS = {
-    'Alsace': ['67', '68'],
-    'Aquitaine': ['24', '33', '40', '47', '64'],
-    'Auvergne': ['03', '15', '43', '63'],
-    'Basse-Normandie': ['14', '50', '61'],
-    'Bourgogne': ['21', '58', '71', '89'],
-    'Champagne-Ardenne': ['08', '10', '51', '52'],
-    'Franche-Comté': ['25', '39', '70', '90'],
-    'Haute-Normandie': ['27', '76'],
-    'Languedoc-Roussillon': ['11', '30', '34', '48', '66'],
-    'Limousin': ['19', '23', '87'],
-    'Lorraine': ['54', '55', '57', '88'],
-    'Midi-Pyrénées': ['09', '12', '31', '32', '46', '65', '81', '82'],
-    'Nord-Pas-de-Calais': ['59', '62'],
-    'Picardie': ['02', '60', '80'],
-    'Poitou-Charentes': ['16', '17', '79', '86'],
+    'Alsace': ['67', '68'], 'Aquitaine': ['24', '33', '40', '47', '64'], 'Auvergne': ['03', '15', '43', '63'],
+    'Basse-Normandie': ['14', '50', '61'], 'Bourgogne': ['21', '58', '71', '89'], 'Champagne-Ardenne': ['08', '10', '51', '52'],
+    'Franche-Comté': ['25', '39', '70', '90'], 'Haute-Normandie': ['27', '76'], 'Languedoc-Roussillon': ['11', '30', '34', '48', '66'],
+    'Limousin': ['19', '23', '87'], 'Lorraine': ['54', '55', '57', '88'], 'Midi-Pyrénées': ['09', '12', '31', '32', '46', '65', '81', '82'],
+    'Nord-Pas-de-Calais': ['59', '62'], 'Picardie': ['02', '60', '80'], 'Poitou-Charentes': ['16', '17', '79', '86'],
     'Rhône-Alpes': ['01', '07', '26', '38', '42', '69', '73', '74']
 };
 
-// Structure B : Mapping de tous les noms administratifs connus du CSV vers un code officiel.
-// Sert de traducteur universel pour standardiser les données.
 const ADMIN_NAME_TO_CODE_MAP = {
-    "France": "FR", // Ajout d'un code pour le niveau national
-    "Ain": "01", "Aisne": "02", "Allier": "03", "Alpes-de-Haute-Provence": "04",
-    "Hautes-Alpes": "05", "Alpes-Maritimes": "06", "Ardèche": "07", "Ardennes": "08",
-    "Ariège": "09", "Aube": "10", "Aude": "11", "Aveyron": "12", "Bouches-du-Rhône": "13",
-    "Calvados": "14", "Cantal": "15", "Charente": "16", "Charente-Maritime": "17",
-    "Cher": "18", "Corrèze": "19", "Corse-du-Sud": "2A", "Haute-Corse": "2B",
-    "Côte-d'Or": "21", "Côtes-d'Armor": "22", "Creuse": "23", "Dordogne": "24",
-    "Doubs": "25", "Drôme": "26", "Eure": "27", "Eure-et-Loir": "28", "Finistère": "29",
-    "Gard": "30", "Haute-Garonne": "31", "Gers": "32", "Gironde": "33", "Hérault": "34",
-    "Ille-et-Vilaine": "35", "Indre": "36", "Indre-et-Loire": "37", "Isère": "38",
-    "Jura": "39", "Landes": "40", "Loir-et-Cher": "41", "Loire": "42", "Haute-Loire": "43",
-    "Loire-Atlantique": "44", "Loiret": "45", "Lot": "46", "Lot-et-Garonne": "47",
-    "Lozère": "48", "Maine-et-Loire": "49", "Manche": "50", "Marne": "51", "Haute-Marne": "52",
-    "Mayenne": "53", "Meurthe-et-Moselle": "54", "Meuse": "55", "Morbihan": "56",
-    "Moselle": "57", "Nièvre": "58", "Nord": "59", "Oise": "60", "Orne": "61",
-    "Pas-de-Calais": "62", "Puy-de-Dôme": "63", "Pyrénées-Atlantiques": "64",
-    "Hautes-Pyrénées": "65", "Pyrénées-Orientales": "66", "Bas-Rhin": "67",
-    "Haut-Rhin": "68", "Rhône": "69", "Haute-Saône": "70", "Saône-et-Loire": "71",
-    "Sarthe": "72", "Savoie": "73", "Haute-Savoie": "74", "Paris": "75",
-    "Seine-Maritime": "76", "Seine-et-Marne": "77", "Yvelines": "78", "Deux-Sèvres": "79",
-    "Somme": "80", "Tarn": "81", "Tarn-et-Garonne": "82", "Var": "83", "Vaucluse": "84",
-    "Vendée": "85", "Vienne": "86", "Haute-Vienne": "87", "Vosges": "88", "Yonne": "89",
-    "Territoire de Belfort": "90", "Essonne": "91", "Hauts-de-Seine": "92",
-    "Seine-Saint-Denis": "93", "Val-de-Marne": "94", "Val-d'Oise": "95",
-    "Auvergne-Rhône-Alpes": "84", "Bourgogne-Franche-Comté": "27", "Bretagne": "53",
-    "Centre-Val de Loire": "24", "Corse": "94", "Grand Est": "44",
-    "Hauts-de-France": "32", "Île-de-France": "11", "Normandie": "28",
-    "Nouvelle-Aquitaine": "75", "Occitanie": "76", "Pays de la Loire": "52",
-    "Provence-Alpes-Côte d'Azur": "93",
+    "France": "FR", "Ain": "01", "Aisne": "02", "Allier": "03", "Alpes-de-Haute-Provence": "04", "Hautes-Alpes": "05",
+    "Alpes-Maritimes": "06", "Ardèche": "07", "Ardennes": "08", "Ariège": "09", "Aube": "10", "Aude": "11", "Aveyron": "12",
+    "Bouches-du-Rhône": "13", "Calvados": "14", "Cantal": "15", "Charente": "16", "Charente-Maritime": "17", "Cher": "18",
+    "Corrèze": "19", "Corse-du-Sud": "2A", "Haute-Corse": "2B", "Côte-d'Or": "21", "Côtes-d'Armor": "22", "Creuse": "23",
+    "Dordogne": "24", "Doubs": "25", "Drôme": "26", "Eure": "27", "Eure-et-Loir": "28", "Finistère": "29", "Gard": "30",
+    "Haute-Garonne": "31", "Gers": "32", "Gironde": "33", "Hérault": "34", "Ille-et-Vilaine": "35", "Indre": "36",
+    "Indre-et-Loire": "37", "Isère": "38", "Jura": "39", "Landes": "40", "Loir-et-Cher": "41", "Loire": "42", "Haute-Loire": "43",
+    "Loire-Atlantique": "44", "Loiret": "45", "Lot": "46", "Lot-et-Garonne": "47", "Lozère": "48", "Maine-et-Loire": "49",
+    "Manche": "50", "Marne": "51", "Haute-Marne": "52", "Mayenne": "53", "Meurthe-et-Moselle": "54", "Meuse": "55", "Morbihan": "56",
+    "Moselle": "57", "Nièvre": "58", "Nord": "59", "Oise": "60", "Orne": "61", "Pas-de-Calais": "62", "Puy-de-Dôme": "63",
+    "Pyrénées-Atlantiques": "64", "Hautes-Pyrénées": "65", "Pyrénées-Orientales": "66", "Bas-Rhin": "67", "Haut-Rhin": "68",
+    "Rhône": "69", "Haute-Saône": "70", "Saône-et-Loire": "71", "Sarthe": "72", "Savoie": "73", "Haute-Savoie": "74", "Paris": "75",
+    "Seine-Maritime": "76", "Seine-et-Marne": "77", "Yvelines": "78", "Deux-Sèvres": "79", "Somme": "80", "Tarn": "81",
+    "Tarn-et-Garonne": "82", "Var": "83", "Vaucluse": "84", "Vendée": "85", "Vienne": "86", "Haute-Vienne": "87", "Vosges": "88",
+    "Yonne": "89", "Territoire de Belfort": "90", "Essonne": "91", "Hauts-de-Seine": "92", "Seine-Saint-Denis": "93",
+    "Val-de-Marne": "94", "Val-d'Oise": "95", "Auvergne-Rhône-Alpes": "84", "Bourgogne-Franche-Comté": "27", "Bretagne": "53",
+    "Centre-Val de Loire": "24", "Corse": "94", "Grand Est": "44", "Hauts-de-France": "32", "Île-de-France": "11", "Normandie": "28",
+    "Nouvelle-Aquitaine": "75", "Occitanie": "76", "Pays de la Loire": "52", "Provence-Alpes-Côte d'Azur": "93",
     "Guadeloupe": "01", "Martinique": "02", "Guyane": "03", "La Réunion": "04", "Mayotte": "06",
 };
 
@@ -110,75 +85,81 @@ exports.handler = async function(event) {
         const newRegionCode = region.code;
         console.log(`Localisation: Dpt ${departmentCode} (${departement.nom}), Région ${newRegionCode} (${region.nom})`);
 
-        const threatCodes = new Set(['NT', 'VU', 'EN', 'CR']);
         const localRules = new Map();
 
-        // --- LOGIQUE DE FILTRAGE ADMINISTRATIVE RENFORCÉE ---
         statusData.forEach(row => {
             const type = row.type.toLowerCase();
             const adminName = row.adm;
 
-            // Étape 1 : Vérifier si le statut est patrimonial
-            const isRedList = type.includes('liste rouge') && threatCodes.has(row.code);
+            const isRedList = type.includes('liste rouge');
             const isProtection = type.includes('protection');
             const isDirective = type.includes('directive');
             if (!isRedList && !isProtection && !isDirective) {
-                return; // Statut non pertinent, on passe au suivant.
+                return;
             }
 
             let ruleApplies = false;
 
-            // Étape 2 : Vérifier la portée géographique du statut
-            // Cas 1 : Statuts à portée NATIONALE (prioritaire)
             if (ADMIN_NAME_TO_CODE_MAP[adminName] === 'FR' || type.includes('nationale')) {
                 ruleApplies = true;
             }
-            // Cas 2 : Statuts à portée LOCALE (non-nationaux)
             else {
-                if (OLD_REGIONS_TO_DEPARTMENTS[adminName]) { // Statut d'une ancienne région
-                    if (OLD_REGIONS_TO_DEPARTMENTS[adminName].includes(departmentCode)) {
-                        ruleApplies = true;
-                    }
-                } else { // Statut départemental ou de nouvelle région
+                if (OLD_REGIONS_TO_DEPARTMENTS[adminName]) {
+                    if (OLD_REGIONS_TO_DEPARTMENTS[adminName].includes(departmentCode)) { ruleApplies = true; }
+                } else {
                     const adminCode = ADMIN_NAME_TO_CODE_MAP[adminName];
-                    if (adminCode === departmentCode || adminCode === newRegionCode) {
-                        ruleApplies = true;
-                    }
+                    if (adminCode === departmentCode || adminCode === newRegionCode) { ruleApplies = true; }
                 }
             }
             
-            // Étape 3 : Ajouter la règle si elle s'applique
             if (ruleApplies) {
-                if (!localRules.has(row.nom)) {
-                    // *** MODIFICATION POUR DÉTAIL DU STATUT ***
-                    // Construction de la chaîne de caractères du statut avec plus de détails.
+                const ruleKey = `${row.nom}|${row.type}|${row.adm}`;
+                if (!localRules.has(ruleKey)) {
                     let descriptiveStatus;
                     if (isRedList) {
-                        // Pour les listes rouges, on inclut le code de menace (NT, VU, etc.).
                         descriptiveStatus = `${row.type} (${row.code}) (${row.adm})`;
                     } else {
-                        // Pour les protections et directives, on utilise le label complet qui contient la référence réglementaire.
                         descriptiveStatus = row.label;
                     }
-                    localRules.set(row.nom, descriptiveStatus);
+                    localRules.set(ruleKey, { species: row.nom, status: descriptiveStatus });
                 }
             }
         });
 
-        console.log(`${localRules.size} règles de patrimonialité pertinentes trouvées pour la zone.`);
+        console.log(`${localRules.size} règles de statut pertinentes trouvées pour la zone (avant filtrage IA).`);
 
         const uniqueSpeciesNames = [...new Set(discoveredOccurrences.map(o => o.species).filter(Boolean))];
         if (uniqueSpeciesNames.length === 0) return { statusCode: 200, body: JSON.stringify({}) };
 
-        const prompt = `Tu es un expert botaniste pour la zone administrative française (département ${departmentCode}, région ${newRegionCode}). Ta mission est d'analyser une liste d'espèces observées et de déterminer lesquelles sont patrimoniales en te basant sur un extrait de la réglementation locale.
+        const patrimonialityRules = localRules.size > 0 
+            ? Array.from(localRules.values()).map(rule => `- ${rule.species}: ${rule.status}`).join('\n')
+            : "Aucune règle de statut n'a été trouvée pour cette zone précise.";
 
-Règles de patrimonialité pour la zone (extrait du référentiel BDCstatut) :
-${localRules.size > 0 ? Array.from(localRules.entries()).map(([name, status]) => `- ${name}: ${status}`).join('\n') : "Aucune règle de protection ou de menace spécifique n'a été trouvée pour cette zone précise dans notre extrait."}
+        // *** MODIFICATION - Le prompt est rendu beaucoup plus strict sur la taxonomie. ***
+        const prompt = `Tu es un expert botaniste pour la zone administrative française (département ${departmentCode}, région ${newRegionCode}). Ta mission est d'analyser une liste d'espèces observées et de déterminer lesquelles sont patrimoniales en te basant sur la réglementation locale fournie. Tu dois appliquer les règles suivantes avec la plus grande rigueur.
 
-Liste des espèces observées sur le terrain (via GBIF) :
+**Règles Impératives d'Analyse :**
+
+1.  **Règle d'Or de Précision Taxonomique (Priorité Haute) :**
+    * Un statut de protection ou de menace s'applique **UNIQUEMENT** au taxon exact (espèce, sous-espèce, variété) mentionné dans la règle.
+    * Le statut d'une sous-espèce (ex: \`subsp.\`) ou d'une variété (ex: \`var.\`) **NE DOIT PAS** être appliqué à l'espèce parente.
+    * **Exemple concret :** Si une espèce observée est \`Anacamptis pyramidalis\` et qu'une règle concerne \`Anacamptis pyramidalis var. tanayensis\`, cette règle ne s'applique PAS. L'espèce \`Anacamptis pyramidalis\` n'hérite pas du statut de sa variété.
+
+2.  **Règles de Définition de la Patrimonialité :**
+    * Une espèce est considérée comme patrimoniale si elle est protégée, réglementée, ou listée comme menacée (NT, VU, EN, CR) sur une liste rouge pertinente.
+    * Le statut "Préoccupation mineure" (LC) n'est **PAS** un statut patrimonial.
+
+3.  **Règle de Gestion des Conflits :**
+    * Si, pour un **MÊME NOM DE TAXON EXACT**, tu trouves des statuts contradictoires au sein d'une même liste (ex: un statut 'LC' et un statut 'VU' pour la liste rouge de la même région), tu dois **ignorer le statut de menace** et ne retenir que le statut 'LC'. Cette situation indique une erreur dans la source de données. Ne rapporte cette espèce comme patrimoniale que si un autre statut (ex: protection nationale) le justifie.
+
+**Réglementation et Statuts pour la Zone :**
+${patrimonialityRules}
+
+**Liste des espèces observées sur le terrain (via GBIF) :**
 ${uniqueSpeciesNames.join(', ')}
 
-Tâche : Compare la liste des espèces observées avec les règles de patrimonialité. Prends en compte les variations taxonomiques (ex: un nom avec ou sans l'auteur comme 'L.' doit correspondre). Retourne UNIQUEMENT un objet JSON valide contenant les espèces de la liste observée qui sont patrimoniales. Le format doit être: { "Nom de l'espèce": "Statut de patrimonialité" }. Si aucune espèce ne correspond ou si aucune règle n'est fournie, retourne un objet JSON vide {}.`;
+**Tâche Finale :**
+En appliquant strictement les règles ci-dessus, compare la liste des espèces observées avec la réglementation. Retourne UNIQUEMENT un objet JSON valide contenant les espèces de la liste observée qui sont **effectivement patrimoniales**. Le format doit être: { "Nom de l'espèce observée": "Statut patrimonial justifié" }. Si aucune espèce n'est patrimoniale après analyse, retourne un objet JSON vide {}.`;
         
         const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
         
