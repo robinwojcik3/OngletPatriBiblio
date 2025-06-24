@@ -1,5 +1,5 @@
 // /biblio-patri.js
-// Version finale avec indexation côté client et sélecteur de fonds de carte.
+// Version finale avec indexation côté client et contrôle des fonds de carte.
 
 document.addEventListener('DOMContentLoaded', async () => {
     // --- 1. Injection des styles ---
@@ -33,7 +33,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     styleElement.textContent = pageStyles;
     document.head.appendChild(styleElement);
     
-    // --- Déclaration des variables et constantes globales ---
+    // --- 2. Déclaration des variables et constantes globales ---
     const statusDiv = document.getElementById('status');
     const resultsContainer = document.getElementById('results');
     const mapContainer = document.getElementById('map');
@@ -61,59 +61,87 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (message) statusDiv.innerHTML += `<p>${message}</p>`;
     };
     
-    const indexRulesFromCSV = (csvText) => { /* ... (corps de fonction inchangé) ... */ };
-    const initializeApp = async () => { /* ... (corps de fonction inchangé) ... */ };
+    const indexRulesFromCSV = (csvText) => {
+        const lines = csvText.trim().split(/\r?\n/);
+        const header = lines.shift().split(';').map(h => h.trim().replace(/"/g, ''));
+        const indices = { adm: header.indexOf('LB_ADM_TR'), nom: header.indexOf('LB_NOM'), code: header.indexOf('CODE_STATUT'), type: header.indexOf('LB_TYPE_STATUT'), label: header.indexOf('LABEL_STATUT') };
+        
+        const index = new Map();
+        lines.forEach(line => {
+            const cols = line.split(';');
+            const rowData = {
+                adm: cols[indices.adm]?.trim().replace(/"/g, '') || '', nom: cols[indices.nom]?.trim().replace(/"/g, '') || '',
+                code: cols[indices.code]?.trim().replace(/"/g, '') || '', type: cols[indices.type]?.trim().replace(/"/g, '') || '',
+                label: cols[indices.label]?.trim().replace(/"/g, '') || ''
+            };
+            if (rowData.nom && rowData.type) {
+                if (!index.has(rowData.nom)) { index.set(rowData.nom, []); }
+                index.get(rowData.nom).push(rowData);
+            }
+        });
+        return index;
+    };
 
-    // --- *** MODIFICATION MAJEURE : Ajout du sélecteur de fonds de carte *** ---
+    const initializeApp = async () => {
+        try {
+            setStatus("Chargement du référentiel BDCstatut...", true);
+            const response = await fetch('/BDCstatut.csv');
+            if (!response.ok) throw new Error("Le référentiel BDCstatut.csv est introuvable.");
+            const csvText = await response.text();
+            rulesByTaxonIndex = indexRulesFromCSV(csvText);
+            setStatus("Prêt. Choisissez une méthode de recherche.");
+            console.log(`Référentiel chargé, ${rulesByTaxonIndex.size} taxons indexés.`);
+        } catch (error) {
+            setStatus(`Erreur critique au chargement : ${error.message}`);
+            console.error(error);
+        }
+    };
+
+    // --- *** MODIFICATION MAJEURE : Ajout du contrôle des couches *** ---
     const initializeMap = (coords) => {
         if (map) {
             map.remove();
         }
-        mapContainer.style.display = 'block';
-
-        // 1. Définition des fonds de carte
-        const topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+    
+        // 1. Définition des couches de base
+        const topoMap = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
             attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)'
         });
-
-        const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+    
+        const satelliteMap = L.tileLayer('https://wxs.ign.fr/essentiels/geoportail/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
+            attribution: '&copy; <a href="https://www.ign.fr/">IGN</a>',
+            maxZoom: 19
         });
-
-        // 2. Initialisation de la carte avec le fond par défaut
+    
+        // 2. Création de la carte avec une couche par défaut
+        mapContainer.style.display = 'block';
         map = L.map(mapContainer, {
             center: [coords.latitude, coords.longitude],
             zoom: 13,
-            layers: [topoLayer] // Le fond topo est chargé par défaut
+            layers: [topoMap] // La carte topographique est affichée par défaut
         });
-
-        // 3. Création des objets pour le contrôle des couches
+    
+        // 3. Définition des objets pour le contrôle des couches
         const baseMaps = {
-            "Topographique": topoLayer,
-            "Satellite": satelliteLayer
+            "Topographique": topoMap,
+            "Satellite (IGN)": satelliteMap
         };
-
-        const searchCircle = L.circle([coords.latitude, coords.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false });
-        
+    
         const overlayMaps = {
-            "Rayon de recherche": searchCircle,
-            "Espèces patrimoniales": patrimonialLayerGroup
+            "Espèces Patrimoniales": patrimonialLayerGroup
         };
-
+    
         // 4. Ajout du contrôle à la carte
         L.control.layers(baseMaps, overlayMaps).addTo(map);
         
-        // 5. Ajout des calques de données par défaut
-        searchCircle.addTo(map);
-        patrimonialLayerGroup.addTo(map);
+        // 5. Ajout du cercle de recherche
+        L.circle([coords.latitude, coords.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
     };
    
     const fetchAndDisplayAllPatrimonialOccurrences = async (patrimonialMap, wkt, initialOccurrences) => {
         const speciesNames = Object.keys(patrimonialMap);
         if (speciesNames.length === 0) return;
-
         setStatus("Étape 3/3: Cartographie détaillée des espèces patrimoniales...", true);
-
         let allOccurrencesWithContext = [];
         const taxonKeyMap = new Map();
         initialOccurrences.forEach(occ => {
@@ -121,11 +149,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 taxonKeyMap.set(occ.species, occ.speciesKey);
             }
         });
-
         for (const [index, speciesName] of speciesNames.entries()) {
             const taxonKey = taxonKeyMap.get(speciesName);
             if (!taxonKey) continue;
-
             const color = SPECIES_COLORS[index % SPECIES_COLORS.length];
             let speciesOccs = [];
             let endOfRecords = false;
@@ -147,7 +173,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             allOccurrencesWithContext = allOccurrencesWithContext.concat(speciesOccs);
         }
-
         const locations = new Map();
         allOccurrencesWithContext.forEach(occ => {
             if (occ.decimalLatitude && occ.decimalLongitude) {
@@ -161,37 +186,33 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             }
         });
-
         patrimonialLayerGroup.clearLayers();
         for (const location of locations.values()) {
             const count = location.speciesList.length;
             const iconHtml = `<div class="marker-cluster-icon" style="background-color: ${count > 1 ? '#c62828' : location.speciesList[0].color};"><span>${count}</span></div>`;
             const icon = L.divIcon({ html: iconHtml, className: 'custom-cluster', iconSize: [28, 28], iconAnchor: [14, 14] });
-            
             let popupContent = `<div class="custom-popup"><b>${count} espèce(s) patrimoniale(s) :</b><ul>`;
             location.speciesList.forEach(s => {
                 popupContent += `<li><span class="legend-color" style="background-color:${s.color};"></span><i>${s.name}</i></li>`;
             });
             popupContent += '</ul></div>';
-            
             const marker = L.marker([location.lat, location.lon], { icon }).bindPopup(popupContent);
             patrimonialLayerGroup.addLayer(marker);
         }
-
+        if(!map.hasLayer(patrimonialLayerGroup)) {
+            patrimonialLayerGroup.addTo(map);
+        }
         setStatus(`${speciesNames.length} espèce(s) patrimoniale(s) cartographiée(s) sur ${locations.size} points.`, false);
     };
 
     const displayResults = (occurrences, patrimonialMap, wkt) => {
         resultsContainer.innerHTML = '';
         patrimonialLayerGroup.clearLayers();
-        
         if (Object.keys(patrimonialMap).length === 0) {
             setStatus(`Aucune occurrence d'espèce patrimoniale trouvée dans ce rayon de ${SEARCH_RADIUS_KM} km.`);
             return;
         }
-        
         setStatus(`${Object.keys(patrimonialMap).length} espèce(s) patrimoniale(s) trouvée(s). Lancement de la cartographie détaillée...`);
-        
         const tableBody = document.createElement('tbody');
         Object.keys(patrimonialMap).sort().forEach((speciesName, index) => {
             const color = SPECIES_COLORS[index % SPECIES_COLORS.length];
@@ -199,12 +220,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             const statusCellContent = Array.isArray(patrimonialMap[speciesName]) ? patrimonialMap[speciesName].join('<br>') : patrimonialMap[speciesName];
             row.innerHTML = `<td><span class="legend-color" style="background-color:${color};"></span><i>${speciesName}</i></td><td>${statusCellContent}</td>`;
         });
-
         const table = document.createElement('table');
         table.innerHTML = `<thead><tr><th>Nom scientifique</th><th>Statut de patrimonialité</th></tr></thead>`;
         table.appendChild(tableBody);
         resultsContainer.appendChild(table);
-
         fetchAndDisplayAllPatrimonialOccurrences(patrimonialMap, wkt, occurrences);
     };
 
@@ -213,7 +232,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             resultsContainer.innerHTML = '';
             mapContainer.style.display = 'none';
             initializeMap(coords);
-
             setStatus("Étape 1/2: Inventaire de la flore locale via GBIF...", true);
             const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
             let allOccurrences = [];
@@ -230,12 +248,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (pageData.endOfRecords) { break; }
             }
             if (allOccurrences.length === 0) { throw new Error("Aucune occurrence de plante trouvée à proximité."); }
-            
             setStatus("Étape 2/2: Analyse des données...", true);
             const uniqueSpeciesNames = [...new Set(allOccurrences.map(o => o.species).filter(Boolean))];
             const relevantRules = new Map();
             const { departement, region } = (await (await fetch(`https://geo.api.gouv.fr/communes?lat=${coords.latitude}&lon=${coords.longitude}&fields=departement,region`)).json())[0];
-
             for (const speciesName of uniqueSpeciesNames) {
                 const rulesForThisTaxon = rulesByTaxonIndex.get(speciesName);
                 if (rulesForThisTaxon) {
@@ -245,12 +261,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                         if (ADMIN_NAME_TO_CODE_MAP[row.adm] === 'FR' || type.includes('nationale')) { ruleApplies = true; } 
                         else if (OLD_REGIONS_TO_DEPARTMENTS[row.adm]?.includes(departement.code)) { ruleApplies = true; } 
                         else { const adminCode = ADMIN_NAME_TO_CODE_MAP[row.adm]; if (adminCode === departement.code || adminCode === region.code) { ruleApplies = true; } }
-
                         if (ruleApplies) {
                             if (nonPatrimonialLabels.has(row.label) || type.includes('déterminante znieff')) { continue; }
                             const isRedList = type.includes('liste rouge');
                             if (isRedList && nonPatrimonialRedlistCodes.has(row.code)) { continue; }
-
                             const ruleKey = `${row.nom}|${row.type}|${row.adm}`;
                             if (!relevantRules.has(ruleKey)) {
                                 const descriptiveStatus = isRedList ? `${row.type} (${row.code}) (${row.adm})` : row.label;
@@ -260,7 +274,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
             }
-
             const analysisResp = await fetch('/.netlify/functions/analyze-patrimonial-status', {
                 method: 'POST',
                 body: JSON.stringify({ 
@@ -271,9 +284,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
             if (!analysisResp.ok) { const errBody = await analysisResp.text(); throw new Error(`Le service d'analyse a échoué: ${errBody}`); }
             const patrimonialMap = await analysisResp.json();
-            
             displayResults(allOccurrences, patrimonialMap, wkt);
-
         } catch (error) {
             console.error("Erreur durant l'analyse:", error);
             setStatus(`Erreur : ${error.message}`);
