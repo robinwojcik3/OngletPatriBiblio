@@ -132,22 +132,12 @@ document.addEventListener('DOMContentLoaded', () => {
              speciesLayers.forEach(layer => map.removeLayer(layer));
          }
          speciesLayers.clear();
-
-         const patrimonialOccurrences = occurrences.filter(occ => occ.species && patrimonialMap[occ.species]);
          
-         const speciesSummary = new Map();
-         patrimonialOccurrences.forEach(occ => {
-             if (!speciesSummary.has(occ.species)) {
-                 speciesSummary.set(occ.species, { name: occ.species, label: patrimonialMap[occ.species], occurrences: [] });
-             }
-             speciesSummary.get(occ.species).occurrences.push({ lat: occ.decimalLatitude, lon: occ.decimalLongitude });
-         });
-
-         const sortedSpecies = Array.from(speciesSummary.values()).sort((a,b) => a.name.localeCompare(b.name));
-         if (sortedSpecies.length === 0) {
+         if (Object.keys(patrimonialMap).length === 0) {
              setStatus(`Aucune occurrence d'espèce patrimoniale trouvée dans ce rayon de ${SEARCH_RADIUS_KM} km.`);
              return;
          }
+         
          setStatus(`${Object.keys(patrimonialMap).length} espèce(s) patrimoniale(s) trouvée(s). Lancement de la cartographie détaillée...`);
          
          const tableBody = document.createElement('tbody');
@@ -176,7 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
              
              const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
              let allOccurrences = [];
-             const maxPages = 12; // *** MODIFICATION : Plafond augmenté à 12 000 occurrences. ***
+             const maxPages = 12;
              const limit = 1000;
 
              for (let page = 0; page < maxPages; page++) {
@@ -195,15 +185,31 @@ document.addEventListener('DOMContentLoaded', () => {
              console.log(`Collecte terminée. ${allOccurrences.length} occurrences totales récupérées depuis GBIF.`);
              if (allOccurrences.length === 0) { throw new Error("Aucune occurrence de plante trouvée à proximité."); }
              
-             setStatus("Étape 2/2: Qualification patrimoniale par l'Analyste Augmenté...", true);
-             const analysisResp = await fetch('/.netlify/functions/analyze-patrimonial-status', {
-                 method: 'POST',
-                 body: JSON.stringify({ discoveredOccurrences: allOccurrences, coords })
-             });
-             if (!analysisResp.ok) { const errBody = await analysisResp.text(); throw new Error(`Le service d'analyse a échoué: ${errBody}`); }
-             const patrimonialMap = await analysisResp.json();
+             // --- *** NOUVEAU : Traitement de l'analyse par lots (chunking) *** ---
+             let finalPatrimonialMap = {};
+             const chunkSize = 2000; // Traiter 2000 occurrences à la fois.
+             const occurrenceChunks = [];
+             for (let i = 0; i < allOccurrences.length; i += chunkSize) {
+                 occurrenceChunks.push(allOccurrences.slice(i, i + chunkSize));
+             }
+
+             for (const [index, chunk] of occurrenceChunks.entries()) {
+                 setStatus(`Étape 2/2: Analyse des données... (Lot ${index + 1}/${occurrenceChunks.length})`, true);
+                 const analysisResp = await fetch('/.netlify/functions/analyze-patrimonial-status', {
+                     method: 'POST',
+                     body: JSON.stringify({ discoveredOccurrences: chunk, coords })
+                 });
+                 if (!analysisResp.ok) { 
+                     const errBody = await analysisResp.text(); 
+                     throw new Error(`Le service d'analyse a échoué: ${errBody}`); 
+                 }
+                 const partialMap = await analysisResp.json();
+                 // Fusionner les résultats partiels dans la carte finale
+                 Object.assign(finalPatrimonialMap, partialMap);
+             }
+             // --- *** FIN du traitement par lots *** ---
              
-             displayResults(allOccurrences, patrimonialMap, wkt);
+             displayResults(allOccurrences, finalPatrimonialMap, wkt);
 
          } catch (error) {
              console.error("Erreur durant l'analyse:", error);
