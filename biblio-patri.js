@@ -2,7 +2,7 @@
 // Version finale avec indexation côté client pour une robustesse et une performance maximales.
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // --- 1. Injection des styles (inchangé) ---
+    // --- 1. Injection des styles ---
     const pageStyles = `
         :root { --primary:#c62828; --bg:#f6f9fb; --card:#ffffff; --border:#e0e0e0; --text:#202124; --max-width:900px; }
         html[data-theme="dark"] { --bg:#181a1b; --card:#262b2f; --border:#333; --text:#ececec; }
@@ -44,7 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     let map = null;
     let speciesLayers = new Map();
-    let rulesByTaxonIndex = new Map(); // L'index sera stocké ici.
+    let rulesByTaxonIndex = new Map();
     const SEARCH_RADIUS_KM = 2;
     const SPECIES_COLORS = ['#E6194B', '#3CB44B', '#FFE119', '#4363D8', '#F58231', '#911EB4', '#46F0F0', '#F032E6', '#BCF60C', '#FABEBE', '#800000', '#AA6E28', '#000075', '#A9A9A9'];
     const nonPatrimonialLabels = new Set(["Liste des espèces végétales sauvages pouvant faire l'objet d'une réglementation préfectorale dans les départements d'outre-mer : Article 1"]);
@@ -88,7 +88,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const initializeApp = async () => {
         try {
             setStatus("Chargement du référentiel BDCstatut...", true);
-            const response = await fetch('/BDCstatut.csv'); // Le fichier doit être à la racine du site
+            const response = await fetch('/BDCstatut.csv');
             if (!response.ok) throw new Error("Le référentiel BDCstatut.csv est introuvable.");
             const csvText = await response.text();
             rulesByTaxonIndex = indexRulesFromCSV(csvText);
@@ -100,7 +100,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
-    // --- 5. LOGIQUE D'APPLICATION (inchangée pour la plupart) ---
+    // --- 5. LOGIQUE D'APPLICATION ---
     const initializeMap = (coords) => {
         if (map) map.remove();
         mapContainer.style.display = 'block';
@@ -110,23 +110,105 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
    
     const fetchAndDisplayAllPatrimonialOccurrences = async (patrimonialMap, wkt, initialOccurrences) => {
-       // ... (Cette fonction reste inchangée)
+        const speciesNames = Object.keys(patrimonialMap);
+        if (speciesNames.length === 0) return;
+
+        setStatus("Étape 3/3: Cartographie détaillée des espèces patrimoniales...", true);
+
+        speciesLayers.forEach(layer => map.removeLayer(layer));
+        speciesLayers.clear();
+        
+        const taxonKeyMap = new Map();
+        initialOccurrences.forEach(occ => {
+            if (occ.species && occ.speciesKey && !taxonKeyMap.has(occ.species)) {
+                taxonKeyMap.set(occ.species, occ.speciesKey);
+            }
+        });
+
+        for (const [index, speciesName] of speciesNames.entries()) {
+            const taxonKey = taxonKeyMap.get(speciesName);
+            if (!taxonKey) continue;
+
+            let allSpeciesOccurrences = [];
+            const maxPages = 10;
+            const limit = 1000;
+            let endOfRecords = false;
+
+            for (let page = 0; page < maxPages && !endOfRecords; page++) {
+                const offset = page * limit;
+                const gbifUrl = `https://api.gbif.org/v1/occurrence/search?limit=${limit}&offset=${offset}&geometry=${encodeURIComponent(wkt)}&taxonKey=${taxonKey}`;
+                try {
+                    const resp = await fetch(gbifUrl);
+                    if (!resp.ok) break;
+                    const pageData = await resp.json();
+                    if (pageData.results?.length > 0) {
+                        allSpeciesOccurrences = allSpeciesOccurrences.concat(pageData.results);
+                    }
+                    endOfRecords = pageData.endOfRecords;
+                } catch (e) {
+                    console.error("Erreur durant la cartographie détaillée pour :", speciesName, e);
+                    break; 
+                }
+            }
+
+            if (allSpeciesOccurrences.length > 0) {
+                const color = SPECIES_COLORS[index % SPECIES_COLORS.length];
+                const icon = L.divIcon({ html: `<div style="background-color:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 3px #000;"></div>`, className:'custom-div-icon', iconSize:[16,16] });
+                const layerGroup = L.layerGroup();
+                allSpeciesOccurrences.forEach(occ => {
+                    if (occ.decimalLatitude && occ.decimalLongitude) {
+                       L.marker([occ.decimalLatitude, occ.decimalLongitude], { icon }).addTo(layerGroup).bindPopup(`<b><i>${speciesName}</i></b>`);
+                    }
+                });
+                layerGroup.addTo(map);
+                speciesLayers.set(speciesName, layerGroup);
+            }
+        }
+        setStatus(`${speciesNames.length} espèce(s) patrimoniale(s) cartographiée(s).`, false);
     };
 
     const displayResults = (occurrences, patrimonialMap, wkt) => {
-       // ... (Cette fonction reste inchangée)
+        resultsContainer.innerHTML = '';
+        if (map) {
+            speciesLayers.forEach(layer => map.removeLayer(layer));
+        }
+        speciesLayers.clear();
+        
+        if (Object.keys(patrimonialMap).length === 0) {
+            setStatus(`Aucune occurrence d'espèce patrimoniale trouvée dans ce rayon de ${SEARCH_RADIUS_KM} km.`);
+            return;
+        }
+        
+        setStatus(`${Object.keys(patrimonialMap).length} espèce(s) patrimoniale(s) trouvée(s). Lancement de la cartographie détaillée...`);
+        
+        const tableBody = document.createElement('tbody');
+        Object.keys(patrimonialMap).sort().forEach((speciesName, index) => {
+            const color = SPECIES_COLORS[index % SPECIES_COLORS.length];
+            const row = tableBody.insertRow();
+            const statusCellContent = Array.isArray(patrimonialMap[speciesName]) ? patrimonialMap[speciesName].join('<br>') : patrimonialMap[speciesName];
+            row.innerHTML = `<td><span class="legend-color" style="background-color:${color};"></span><i>${speciesName}</i></td><td>${statusCellContent}</td>`;
+        });
+
+        const table = document.createElement('table');
+        table.innerHTML = `<thead><tr><th>Nom scientifique</th><th>Statut de patrimonialité</th></tr></thead>`;
+        table.appendChild(tableBody);
+        resultsContainer.appendChild(table);
+
+        fetchAndDisplayAllPatrimonialOccurrences(patrimonialMap, wkt, occurrences);
     };
 
     const runAnalysis = async (coords) => {
         try {
-            resultsContainer.innerHTML = ''; mapContainer.style.display = 'none';
+            resultsContainer.innerHTML = '';
+            mapContainer.style.display = 'none';
             initializeMap(coords);
 
-            // ETAPE 1: Inventaire GBIF (inchangé)
+            // ETAPE 1: Inventaire GBIF
             setStatus("Étape 1/2: Inventaire de la flore locale via GBIF...", true);
             const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
             let allOccurrences = [];
-            const maxPages = 12; const limit = 1000;
+            const maxPages = 12;
+            const limit = 1000;
             for (let page = 0; page < maxPages; page++) {
                 const offset = page * limit;
                 setStatus(`Étape 1/2: Inventaire de la flore locale via GBIF... (Page ${page + 1}/${maxPages})`, true);
@@ -190,11 +272,29 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
      
-    const handleAddressSearch = async () => { /* ... (inchangé) ... */ };
-    const handleGeolocationSearch = async () => { /* ... (inchangé) ... */ };
+    const handleAddressSearch = async () => {
+        const address = addressInput.value.trim();
+        if (!address) return alert("Veuillez saisir une adresse.");
+        try {
+            setStatus(`Géocodage de l'adresse...`, true);
+            const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`);
+            if (!resp.ok) throw new Error("Service de géocodage indisponible.");
+            const data = await resp.json();
+            if (data.length === 0) throw new Error("Adresse non trouvée.");
+            runAnalysis({ latitude: parseFloat(data[0].lat), longitude: parseFloat(data[0].lon) });
+        } catch (error) { setStatus(`Erreur : ${error.message}`); }
+    };
+    
+    const handleGeolocationSearch = async () => {
+        try {
+            setStatus("Récupération de votre position...", true);
+            const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 }));
+            runAnalysis(coords);
+        } catch(error) { setStatus(`Erreur de géolocalisation : ${error.message}`); }
+    };
     
     // --- 6. DÉMARRAGE DE L'APPLICATION ---
-    initializeApp();
+    await initializeApp(); // On attend que l'initialisation soit terminée
     searchAddressBtn.addEventListener('click', handleAddressSearch);
     useGeolocationBtn.addEventListener('click', handleGeolocationSearch);
     addressInput.addEventListener('keypress', (e) => e.key === 'Enter' && handleAddressSearch());
