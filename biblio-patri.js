@@ -127,7 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
              
              const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
              let allOccurrences = [];
-             const maxPages = 8; // *** MODIFICATION : Nombre de pages augmenté de 3 à 6. ***
+             const maxPages = 6; // *** MODIFICATION : Nombre de pages augmenté de 3 à 6. ***
              const limit = 1000;
 
              for (let page = 0; page < maxPages; page++) {
