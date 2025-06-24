@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
      let map = null;
      let speciesLayers = new Map();
-     const SEARCH_RADIUS_KM = 3; // *** MODIFICATION : Rayon de recherche changé de 5 à 3 km. ***
+     const SEARCH_RADIUS_KM = 3; 
      const SPECIES_COLORS = ['#E6194B', '#3CB44B', '#FFE119', '#4363D8', '#F58231', '#911EB4', '#46F0F0', '#F032E6', '#BCF60C', '#FABEBE', '#800000', '#AA6E28', '#000075', '#A9A9A9'];
      
      const setStatus = (message, isLoading = false) => {
@@ -123,7 +123,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
              setStatus("Étape 1/2: Inventaire de la flore locale via GBIF...", true);
              const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
-             const gbifResp = await fetch(`https://api.gbif.org/v1/occurrence/search?limit=500&geometry=${encodeURIComponent(wkt)}&kingdomKey=6`);
+             
+             // *** MODIFICATION : Augmentation de la limite de 500 à 1000. ***
+             const gbifResp = await fetch(`https://api.gbif.org/v1/occurrence/search?limit=1000&geometry=${encodeURIComponent(wkt)}&kingdomKey=6`);
+
              if (!gbifResp.ok) throw new Error("L'API GBIF est indisponible.");
              const occurrenceData = await gbifResp.json();
              if (occurrenceData.results.length === 0) throw new Error("Aucune occurrence de plante trouvée à proximité.");
