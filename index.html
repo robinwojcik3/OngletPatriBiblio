@@ -15,26 +15,35 @@
 <body>
     <div class="main-content">
         <h1>Analyse des Espèces Patrimoniales à Proximité</h1>
-        <p style="text-align:center; max-width:700px; margin:0 auto 1rem;">
-            Lancez une analyse autour d'une adresse ou de votre position actuelle pour trouver les espèces patrimoniales à proximité.
-        </p>
+        <div class="tabs">
+            <button id="analysis-tab-btn" class="tab-button active">Analyse patrimoniale</button>
+            <button id="observations-tab-btn" class="tab-button">Observations locales</button>
+        </div>
         
-        <div class="search-controls">
-            <div class="search-group">
-                <input type="text" id="address-input" placeholder="Saisir une adresse, une ville, un lieu...">
-                <button id="search-address-btn" class="action-button">Rechercher l'adresse</button>
+        <div id="analysis-tab" class="tab-content" style="display:block;">
+            <div class="search-controls">
+                <div class="search-group">
+                    <input type="text" id="address-input" placeholder="Saisir une adresse, une ville, un lieu...">
+                    <button id="search-address-btn" class="action-button">Rechercher l'adresse</button>
+                </div>
+                <div class="separator">ou</div>
+                <div class="search-group">
+                    <button id="use-geolocation-btn" class="action-button">Utiliser ma position actuelle</button>
+                </div>
             </div>
-            <div class="separator">ou</div>
-            <div class="search-group">
-                <button id="use-geolocation-btn" class="action-button">Utiliser ma position actuelle</button>
-            </div>
+
+            <div id="status" class="status-container"></div>
+
+            <div id="map" style="display: none;"></div>
+
+            <div id="results" class="results-container"></div>
         </div>
 
-        <div id="status" class="status-container"></div>
-        
-        <div id="map" style="display: none;"></div>
-
-        <div id="results" class="results-container"></div>
+        <div id="observations-tab" class="tab-content" style="display:none;">
+            <button id="load-observations-btn" class="action-button">Charger les observations à proximité</button>
+            <div id="obs-status" class="status-container"></div>
+            <div id="observations-map" style="display:none;"></div>
+        </div>
     </div>
 </body>
 </html>
