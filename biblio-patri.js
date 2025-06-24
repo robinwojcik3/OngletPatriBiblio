@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
      let map = null;
      let speciesLayers = new Map();
-     const SEARCH_RADIUS_KM = 1.5; // *** MODIFICATION : Rayon de recherche changé de 3 à 1.5 km. ***
+     const SEARCH_RADIUS_KM = 1.5; // *** MODIFICATION : Rayon de recherche changé à 1.5 km. ***
      const SPECIES_COLORS = ['#E6194B', '#3CB44B', '#FFE119', '#4363D8', '#F58231', '#911EB4', '#46F0F0', '#F032E6', '#BCF60C', '#FABEBE', '#800000', '#AA6E28', '#000075', '#A9A9A9'];
      
      const setStatus = (message, isLoading = false) => {
@@ -122,11 +122,12 @@ document.addEventListener('DOMContentLoaded', () => {
              mapContainer.style.display = 'none';
              initializeMap(coords);
 
+             // --- Logique de pagination pour GBIF ---
              setStatus("Étape 1/2: Inventaire de la flore locale via GBIF...", true);
              
              const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
              let allOccurrences = [];
-             const maxPages = 10; // *** MODIFICATION : Nombre de pages augmenté à 10. ***
+             const maxPages = 10; // *** MODIFICATION : Pagination augmentée à 10 pages. ***
              const limit = 1000;
 
              for (let page = 0; page < maxPages; page++) {
