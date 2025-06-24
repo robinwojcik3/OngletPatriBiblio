@@ -151,7 +151,10 @@ exports.handler = async function(event) {
             // Étape 3 : Ajouter la règle si elle s'applique
             if (ruleApplies) {
                 if (!localRules.has(row.nom)) {
-                    localRules.set(row.nom, row.label);
+                    // *** MODIFICATION PRINCIPALE ***
+                    // On construit un statut descriptif au lieu de juste prendre le label.
+                    const descriptiveStatus = `${row.type} (${row.adm})`;
+                    localRules.set(row.nom, descriptiveStatus);
                 }
             }
         });
@@ -188,13 +191,13 @@ Tâche : Compare la liste des espèces observées avec les règles de patrimonia
         const geminiData = await geminiResp.json();
         let patrimonialMap = {};
         if (geminiData.candidates && geminiData.candidates[0].content && geminiData.candidates[0].content.parts[0]) {
-             const jsonString = geminiData.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
-             try {
+            const jsonString = geminiData.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
+            try {
                 patrimonialMap = JSON.parse(jsonString);
-             } catch (parseError) {
+            } catch (parseError) {
                 console.error("Erreur de parsing de la réponse JSON de Gemini:", parseError, "Réponse brute:", jsonString);
                 throw new Error("L'API d'analyse a retourné une réponse mal formée.");
-             }
+            }
         } else {
             console.warn("Réponse de Gemini inattendue ou vide:", JSON.stringify(geminiData, null, 2));
         }
