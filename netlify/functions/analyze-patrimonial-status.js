@@ -10,8 +10,28 @@ const GEMINI_API_KEY = "AIzaSyDDv4amCchpTXGqz6FGuY8mxPClkw-uwMs";
 const csvPath = path.join(__dirname, 'BDCstatut.csv');
 const statusDataRaw = fs.readFileSync(csvPath, 'utf8');
 
+// --- NOUVELLE STRUCTURE : Mapping des anciennes régions à leurs départements ---
+// Cette structure est essentielle pour appliquer les statuts des anciennes régions uniquement à leur territoire d'origine.
+const OLD_REGIONS_TO_DEPARTMENTS = {
+    'Alsace': ['67', '68'],
+    'Aquitaine': ['24', '33', '40', '47', '64'],
+    'Auvergne': ['03', '15', '43', '63'],
+    'Basse-Normandie': ['14', '50', '61'],
+    'Bourgogne': ['21', '58', '71', '89'],
+    'Champagne-Ardenne': ['08', '10', '51', '52'],
+    'Franche-Comté': ['25', '39', '70', '90'],
+    'Haute-Normandie': ['27', '76'],
+    'Languedoc-Roussillon': ['11', '30', '34', '48', '66'],
+    'Limousin': ['19', '23', '87'],
+    'Lorraine': ['54', '55', '57', '88'],
+    'Midi-Pyrénées': ['09', '12', '31', '32', '46', '65', '81', '82'],
+    'Nord-Pas-de-Calais': ['59', '62'],
+    'Picardie': ['02', '60', '80'],
+    'Poitou-Charentes': ['16', '17', '79', '86'],
+    'Rhône-Alpes': ['01', '07', '26', '38', '42', '69', '73', '74']
+};
+
 // Mapping des noms administratifs vers les codes officiels (Départements & Régions)
-// Cette table est cruciale pour fiabiliser la correspondance.
 const ADMIN_NAME_TO_CODE_MAP = {
     "Ain": "01", "Aisne": "02", "Allier": "03", "Alpes-de-Haute-Provence": "04",
     "Hautes-Alpes": "05", "Alpes-Maritimes": "06", "Ardèche": "07", "Ardennes": "08",
@@ -36,28 +56,16 @@ const ADMIN_NAME_TO_CODE_MAP = {
     "Vendée": "85", "Vienne": "86", "Haute-Vienne": "87", "Vosges": "88", "Yonne": "89",
     "Territoire de Belfort": "90", "Essonne": "91", "Hauts-de-Seine": "92",
     "Seine-Saint-Denis": "93", "Val-de-Marne": "94", "Val-d'Oise": "95",
-    // Régions (nouvelles et anciennes pour la correspondance)
-    "Auvergne-Rhône-Alpes": "84", "Rhône-Alpes": "84", "Auvergne": "84",
-    "Bourgogne-Franche-Comté": "27", "Bourgogne": "27", "Franche-Comté": "27",
-    "Bretagne": "53",
-    "Centre-Val de Loire": "24", "Centre": "24",
-    "Corse": "94",
-    "Grand Est": "44", "Alsace": "44", "Champagne-Ardenne": "44", "Lorraine": "44",
-    "Hauts-de-France": "32", "Nord-Pas-de-Calais": "32", "Picardie": "32",
-    "Île-de-France": "11",
-    "Normandie": "28", "Basse-Normandie": "28", "Haute-Normandie": "28",
-    "Nouvelle-Aquitaine": "75", "Aquitaine": "75", "Limousin": "75", "Poitou-Charentes": "75",
-    "Occitanie": "76", "Languedoc-Roussillon": "76", "Midi-Pyrénées": "76",
-    "Pays de la Loire": "52",
+    // Régions
+    "Auvergne-Rhône-Alpes": "84", "Bourgogne-Franche-Comté": "27", "Bretagne": "53",
+    "Centre-Val de Loire": "24", "Corse": "94", "Grand Est": "44",
+    "Hauts-de-France": "32", "Île-de-France": "11", "Normandie": "28",
+    "Nouvelle-Aquitaine": "75", "Occitanie": "76", "Pays de la Loire": "52",
     "Provence-Alpes-Côte d'Azur": "93",
     // Outre-mer
     "Guadeloupe": "01", "Martinique": "02", "Guyane": "03", "La Réunion": "04", "Mayotte": "06",
 };
 
-/**
- * Parse les données brutes du CSV.
- * @returns {Array<Object>} Un tableau d'objets représentant les lignes du CSV.
- */
 const parseStatusData = () => {
     const lines = statusDataRaw.trim().split(/\r?\n/);
     const header = lines.shift().split(';').map(h => h.trim().replace(/"/g, ''));
@@ -81,7 +89,6 @@ const parseStatusData = () => {
 
 const statusData = parseStatusData();
 
-// --- HANDLER PRINCIPAL DE LA FONCTION SERVERLESS ---
 exports.handler = async function(event) {
     if (event.httpMethod !== 'POST') {
         return { statusCode: 405, body: 'Method Not Allowed' };
@@ -93,9 +100,7 @@ exports.handler = async function(event) {
              return { statusCode: 400, body: 'Données d\'entrée invalides (occurrences ou coordonnées manquantes).' };
         }
 
-        // --- 3. FIABILISATION : Récupération des CODES administratifs depuis l'API GOUV ---
         const geoApiUrl = `https://geo.api.gouv.fr/communes?lat=${coords.latitude}&lon=${coords.longitude}&fields=departement,region`;
-        console.log(`Interrogation de l'API Geo: ${geoApiUrl}`);
         const geoResp = await fetch(geoApiUrl);
         if (!geoResp.ok) throw new Error("Le service de géolocalisation administrative (geo.api.gouv.fr) est indisponible.");
         
@@ -107,19 +112,31 @@ exports.handler = async function(event) {
         const regionCode = region.code;
         console.log(`Localisation identifiée: Département ${departement.nom} (code: ${departmentCode}), Région ${region.nom} (code: ${regionCode})`);
 
-        // --- 4. NOUVELLE LOGIQUE DE FILTRAGE BASÉE SUR LES CODES ---
+        // --- LOGIQUE DE FILTRAGE CORRIGÉE ---
         const threatCodes = new Set(['NT', 'VU', 'EN', 'CR']);
         const localRules = new Map();
 
         statusData.forEach(row => {
-            const adminName = row.adm;
-            const adminCode = ADMIN_NAME_TO_CODE_MAP[adminName];
+            const adminName = row.adm; // Le nom de la zone administrative du CSV (ex: "Auvergne")
+            let ruleApplies = false;
+
+            // 1. Contrôle prioritaire : s'agit-il d'un statut d'une ancienne région ?
+            if (OLD_REGIONS_TO_DEPARTMENTS[adminName]) {
+                // Si oui, la règle s'applique UNIQUEMENT si le département actuel est dans la liste des départements de cette ancienne région.
+                if (OLD_REGIONS_TO_DEPARTMENTS[adminName].includes(departmentCode)) {
+                    ruleApplies = true;
+                }
+            } else {
+                // 2. Sinon, on procède à la vérification par code (département ou nouvelle région).
+                const adminCode = ADMIN_NAME_TO_CODE_MAP[adminName];
+                if (adminCode === departmentCode || adminCode === regionCode) {
+                    ruleApplies = true;
+                }
+            }
             
-            // Comparaison des CODES et non plus des NOMS
-            if (adminCode === departmentCode || adminCode === regionCode) {
+            if (ruleApplies) {
                 const type = row.type.toLowerCase();
                 if ((type.includes('liste rouge') && threatCodes.has(row.code)) || type.includes('protection') || type.includes('directive')) {
-                    // Utiliser le nom de l'espèce comme clé pour éviter les doublons de statuts
                     if (!localRules.has(row.nom)) {
                         localRules.set(row.nom, row.label);
                     }
@@ -128,10 +145,8 @@ exports.handler = async function(event) {
         });
         console.log(`${localRules.size} règles de patrimonialité pertinentes trouvées pour la zone.`);
 
-        // --- 5. APPEL À L'API GEMINI ---
         const uniqueSpeciesNames = [...new Set(discoveredOccurrences.map(o => o.species).filter(Boolean))];
         if (uniqueSpeciesNames.length === 0) {
-            console.log("Aucun nom d'espèce valide à analyser.");
             return { statusCode: 200, body: JSON.stringify({}) };
         }
 
@@ -160,8 +175,6 @@ Tâche : Compare la liste des espèces observées avec les règles de patrimonia
         }
         
         const geminiData = await geminiResp.json();
-
-        // Extraction robuste de la réponse JSON
         let patrimonialMap = {};
         if (geminiData.candidates && geminiData.candidates[0].content && geminiData.candidates[0].content.parts[0]) {
              const jsonString = geminiData.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
