@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
      let map = null;
      let speciesLayers = new Map();
-     const SEARCH_RADIUS_KM = 5;
+     const SEARCH_RADIUS_KM = 3; // *** MODIFICATION : Rayon de recherche changé de 5 à 3 km. ***
      const SPECIES_COLORS = ['#E6194B', '#3CB44B', '#FFE119', '#4363D8', '#F58231', '#911EB4', '#46F0F0', '#F032E6', '#BCF60C', '#FABEBE', '#800000', '#AA6E28', '#000075', '#A9A9A9'];
      
      const setStatus = (message, isLoading = false) => {
@@ -101,8 +101,6 @@ document.addEventListener('DOMContentLoaded', () => {
              speciesLayers.set(species.name, layerGroup);
 
              const row = tableBody.insertRow();
-             // *** MODIFICATION - Ligne 104 ***
-             // Suppression des cellules "Occurrences" et "Lien INPN". La colonne "label" contient désormais le statut détaillé.
              row.innerHTML = `<td><span class="legend-color" style="background-color:${color};"></span><i>${species.name}</i></td><td>${species.label}</td>`;
              row.addEventListener('click', () => {
                  if (speciesLayers.has(species.name)) {
@@ -112,8 +110,6 @@ document.addEventListener('DOMContentLoaded', () => {
              });
          });
          const table = document.createElement('table');
-         // *** MODIFICATION - Ligne 113 ***
-         // Mise à jour de l'en-tête du tableau pour correspondre à la nouvelle structure.
          table.innerHTML = `<thead><tr><th>Nom scientifique</th><th>Statut de patrimonialité</th></tr></thead>`;
          table.appendChild(tableBody);
          resultsContainer.appendChild(table);
