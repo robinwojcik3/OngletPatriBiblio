@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
      let map = null;
      let speciesLayers = new Map();
-     const SEARCH_RADIUS_KM = 1; // *** MODIFICATION : Rayon de recherche changé de 3 à 2 km. ***
+     const SEARCH_RADIUS_KM = 2 ; // *** MODIFICATION : Rayon de recherche changé de 3 à 2 km. ***
      const SPECIES_COLORS = ['#E6194B', '#3CB44B', '#FFE119', '#4363D8', '#F58231', '#911EB4', '#46F0F0', '#F032E6', '#BCF60C', '#FABEBE', '#800000', '#AA6E28', '#000075', '#A9A9A9'];
      
      const setStatus = (message, isLoading = false) => {
