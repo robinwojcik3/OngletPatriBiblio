@@ -345,9 +345,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     const initializeObservationMap = (coords) => {
         if (obsMap) obsMap.remove();
         obsMapContainer.style.display = 'block';
-        const base = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors' });
-        obsMap = L.map(obsMapContainer, { center: [coords.latitude, coords.longitude], zoom: 18, layers: [base] });
+        const planMap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        });
+
+        const satelliteMap = L.tileLayer('https://wxs.ign.fr/essentiels/geoportail/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
+            attribution: '&copy; <a href="https://www.ign.fr/">IGN</a>',
+            maxZoom: 19
+        });
+
+        obsMap = L.map(obsMapContainer, { center: [coords.latitude, coords.longitude], zoom: 18, layers: [planMap] });
+
         observationsLayerGroup = L.layerGroup().addTo(obsMap);
+
+        const baseMaps = {
+            "Plan": planMap,
+            "Satellite (IGN)": satelliteMap
+        };
+
+        const overlayMaps = {
+            "Observations": observationsLayerGroup
+        };
+
+        L.control.layers(baseMaps, overlayMaps).addTo(obsMap);
+
         L.circle([coords.latitude, coords.longitude], { radius: OBS_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(obsMap);
     };
 
