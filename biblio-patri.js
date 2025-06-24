@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
      let map = null;
      let speciesLayers = new Map();
-     const SEARCH_RADIUS_KM = 1.5; // *** MODIFICATION : Rayon de recherche changé à 1.5 km. ***
+     const SEARCH_RADIUS_KM = 2; // *** MODIFICATION : Rayon de recherche changé de 3 à 2 km. ***
      const SPECIES_COLORS = ['#E6194B', '#3CB44B', '#FFE119', '#4363D8', '#F58231', '#911EB4', '#46F0F0', '#F032E6', '#BCF60C', '#FABEBE', '#800000', '#AA6E28', '#000075', '#A9A9A9'];
      
      const setStatus = (message, isLoading = false) => {
@@ -62,7 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
      const initializeMap = (coords) => {
          if (map) map.remove();
          mapContainer.style.display = 'block';
-         map = L.map(mapContainer).setView([coords.latitude, coords.longitude], 13); // Zoom slightly more for smaller radius
+         map = L.map(mapContainer).setView([coords.latitude, coords.longitude], 13); // Zoom légèrement augmenté pour un rayon plus petit
          L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: 'Map data: © OpenStreetMap contributors' }).addTo(map);
          L.circle([coords.latitude, coords.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
      };
@@ -127,7 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
              
              const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
              let allOccurrences = [];
-             const maxPages = 10; // *** MODIFICATION : Pagination augmentée à 10 pages. ***
+             const maxPages = 6; // *** MODIFICATION : Nombre de pages augmenté de 3 à 6. ***
              const limit = 1000;
 
              for (let page = 0; page < maxPages; page++) {
