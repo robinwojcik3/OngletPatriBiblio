@@ -59,6 +59,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let rulesByTaxonIndex = new Map();
     const SEARCH_RADIUS_KM = 2;
     const OBS_RADIUS_KM = 0.2;
+    const TRACHEOPHYTA_TAXON_KEY = 7707728; // GBIF taxonKey for vascular plants
     const SPECIES_COLORS = ['#E6194B', '#3CB44B', '#FFE119', '#4363D8', '#F58231', '#911EB4', '#46F0F0', '#F032E6', '#BCF60C', '#FABEBE', '#800000', '#AA6E28', '#000075', '#A9A9A9'];
     const nonPatrimonialLabels = new Set(["Liste des espèces végétales sauvages pouvant faire l'objet d'une réglementation préfectorale dans les départements d'outre-mer : Article 1"]);
     const nonPatrimonialRedlistCodes = new Set(['LC', 'DD', 'NA', 'NE']);
@@ -354,7 +355,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const displayObservations = (occurrences) => {
         observationsLayerGroup.clearLayers();
         const floraOccs = occurrences.filter(o =>
-            o.phylum && /tracheophyta/i.test(o.phylum)
+            (o.phylum && /tracheophyta/i.test(o.phylum)) ||
+            (o.kingdom && /plantae/i.test(o.kingdom))
         );
         floraOccs.forEach(o => {
             if (o.decimalLatitude && o.decimalLongitude && o.species) {
@@ -374,7 +376,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             initializeObservationMap(coords);
             obsStatusDiv.textContent = 'Recherche des occurrences GBIF...';
             const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+OBS_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+OBS_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
-            const url = `https://api.gbif.org/v1/occurrence/search?limit=300&geometry=${encodeURIComponent(wkt)}&taxonKey=7707728`;
+            const url = `https://api.gbif.org/v1/occurrence/search?limit=300&geometry=${encodeURIComponent(wkt)}&taxonKey=${TRACHEOPHYTA_TAXON_KEY}`;
             const resp = await fetch(url);
             if (!resp.ok) throw new Error("L'API GBIF est indisponible.");
             const data = await resp.json();
