@@ -10,7 +10,7 @@ const GEMINI_API_KEY = "AIzaSyDDv4amCchpTXGqz6FGuY8mxPClkw-uwMs";
 const csvPath = path.join(__dirname, 'BDCstatut.csv');
 const statusDataRaw = fs.readFileSync(csvPath, 'utf8');
 
-// --- 3. STRUCTURES DE DONNÉES POUR LA CORRESPONDANCE ADMINISTRATIVE ---
+// --- 3. STRUCTURES DE DONNÉES PRÉ-CALCULÉES (POUR L'OPTIMISATION) ---
 
 const OLD_REGIONS_TO_DEPARTMENTS = {
     'Alsace': ['67', '68'], 'Aquitaine': ['24', '33', '40', '47', '64'], 'Auvergne': ['03', '15', '43', '63'],
@@ -43,28 +43,50 @@ const ADMIN_NAME_TO_CODE_MAP = {
     "Guadeloupe": "01", "Martinique": "02", "Guyane": "03", "La Réunion": "04", "Mayotte": "06",
 };
 
-const parseStatusData = () => {
+/**
+ * @description Indexe les règles du CSV par nom de taxon pour un accès ultra-rapide.
+ * C'est la clé de l'optimisation pour éviter les timeouts.
+ * @returns {Map<string, Object[]>} - Une map où la clé est le nom du taxon et la valeur est un tableau de ses règles.
+ */
+const indexRulesByTaxon = () => {
     const lines = statusDataRaw.trim().split(/\r?\n/);
     const header = lines.shift().split(';').map(h => h.trim().replace(/"/g, ''));
-    const required = { adm: 'LB_ADM_TR', nom: 'LB_NOM', code: 'CODE_STATUT', type: 'LB_TYPE_STATUT', label: 'LABEL_STATUT' };
-    const indices = Object.keys(required).reduce((acc, key) => ({...acc, [key]: header.indexOf(required[key]) }), {});
+    const indices = { 
+        adm: header.indexOf('LB_ADM_TR'), 
+        nom: header.indexOf('LB_NOM'), 
+        code: header.indexOf('CODE_STATUT'), 
+        type: header.indexOf('LB_TYPE_STATUT'), 
+        label: header.indexOf('LABEL_STATUT') 
+    };
 
     if (Object.values(indices).some(i => i === -1)) {
-        console.error("Colonnes CSV manquantes:", required, header);
-        throw new Error(`Le format du fichier CSV BDCstatut.csv est invalide.`);
+        throw new Error(`Le format du fichier CSV BDCstatut.csv est invalide. Colonnes manquantes.`);
     }
     
-    return lines.map(line => {
+    const rulesIndex = new Map();
+    lines.forEach(line => {
         const cols = line.split(';');
-        const rowData = {};
-        for (const key in indices) {
-            rowData[key] = cols[indices[key]]?.trim().replace(/"/g, '') || '';
+        const rowData = {
+            adm: cols[indices.adm]?.trim().replace(/"/g, '') || '',
+            nom: cols[indices.nom]?.trim().replace(/"/g, '') || '',
+            code: cols[indices.code]?.trim().replace(/"/g, '') || '',
+            type: cols[indices.type]?.trim().replace(/"/g, '') || '',
+            label: cols[indices.label]?.trim().replace(/"/g, '') || ''
+        };
+
+        if (rowData.nom && rowData.type) {
+            if (!rulesIndex.has(rowData.nom)) {
+                rulesIndex.set(rowData.nom, []);
+            }
+            rulesIndex.get(rowData.nom).push(rowData);
         }
-        return rowData;
-    }).filter(row => row.nom && row.type);
+    });
+    return rulesIndex;
 };
 
-const statusData = parseStatusData();
+// --- Indexation exécutée une seule fois au démarrage de la fonction (cold start) ---
+const rulesByTaxonIndex = indexRulesByTaxon();
+
 
 exports.handler = async function(event) {
     if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
@@ -73,69 +95,62 @@ exports.handler = async function(event) {
         const { discoveredOccurrences, coords } = JSON.parse(event.body);
         if (!discoveredOccurrences || !coords) return { statusCode: 400, body: 'Données d\'entrée invalides.' };
 
+        // --- 1. Obtention du contexte géographique (inchangé) ---
         const geoApiUrl = `https://geo.api.gouv.fr/communes?lat=${coords.latitude}&lon=${coords.longitude}&fields=departement,region`;
         const geoResp = await fetch(geoApiUrl);
         if (!geoResp.ok) throw new Error("Service de géolocalisation administrative indisponible.");
-        
         const geoData = await geoResp.json();
         if (geoData.length === 0) throw new Error(`Aucune information administrative trouvée pour les coordonnées.`);
-        
         const { departement, region } = geoData[0];
         const departmentCode = departement.code;
         const newRegionCode = region.code;
-        console.log(`Localisation: Dpt ${departmentCode} (${departement.nom}), Région ${newRegionCode} (${region.nom})`);
 
-        const localRules = new Map();
-
-        statusData.forEach(row => {
-            const type = row.type.toLowerCase();
-            const adminName = row.adm;
-
-            const isRedList = type.includes('liste rouge');
-            const isProtection = type.includes('protection');
-            const isDirective = type.includes('directive');
-            if (!isRedList && !isProtection && !isDirective) {
-                return;
-            }
-
-            let ruleApplies = false;
-
-            if (ADMIN_NAME_TO_CODE_MAP[adminName] === 'FR' || type.includes('nationale')) {
-                ruleApplies = true;
-            }
-            else {
-                if (OLD_REGIONS_TO_DEPARTMENTS[adminName]) {
-                    if (OLD_REGIONS_TO_DEPARTMENTS[adminName].includes(departmentCode)) { ruleApplies = true; }
-                } else {
-                    const adminCode = ADMIN_NAME_TO_CODE_MAP[adminName];
-                    if (adminCode === departmentCode || adminCode === newRegionCode) { ruleApplies = true; }
-                }
-            }
-            
-            if (ruleApplies) {
-                const ruleKey = `${row.nom}|${row.type}|${row.adm}`;
-                if (!localRules.has(ruleKey)) {
-                    let descriptiveStatus;
-                    if (isRedList) {
-                        descriptiveStatus = `${row.type} (${row.code}) (${row.adm})`;
-                    } else {
-                        descriptiveStatus = row.label;
-                    }
-                    localRules.set(ruleKey, { species: row.nom, status: descriptiveStatus });
-                }
-            }
-        });
-
-        console.log(`${localRules.size} règles de statut pertinentes trouvées pour la zone (avant filtrage IA).`);
-
+        // --- 2. Construction de la liste de règles pertinentes (logique optimisée) ---
         const uniqueSpeciesNames = [...new Set(discoveredOccurrences.map(o => o.species).filter(Boolean))];
-        if (uniqueSpeciesNames.length === 0) return { statusCode: 200, body: JSON.stringify({}) };
+        const relevantRules = new Map();
 
-        const patrimonialityRules = localRules.size > 0 
-            ? Array.from(localRules.values()).map(rule => `- ${rule.species}: ${rule.status}`).join('\n')
-            : "Aucune règle de statut n'a été trouvée pour cette zone précise.";
+        // On itère sur les espèces trouvées (petite liste) au lieu de tout le CSV.
+        for (const speciesName of uniqueSpeciesNames) {
+            // On récupère les règles uniquement pour cette espèce via l'index rapide.
+            const rulesForThisTaxon = rulesByTaxonIndex.get(speciesName);
 
-        // *** MODIFICATION - Le prompt est rendu beaucoup plus strict sur la taxonomie. ***
+            if (rulesForThisTaxon) {
+                // On applique le filtre géographique sur ce petit sous-ensemble de règles.
+                for (const row of rulesForThisTaxon) {
+                    let ruleApplies = false;
+                    const type = row.type.toLowerCase();
+                    if (ADMIN_NAME_TO_CODE_MAP[row.adm] === 'FR' || type.includes('nationale')) {
+                        ruleApplies = true;
+                    } else if (OLD_REGIONS_TO_DEPARTMENTS[row.adm]?.includes(departmentCode)) {
+                        ruleApplies = true;
+                    } else {
+                        const adminCode = ADMIN_NAME_TO_CODE_MAP[row.adm];
+                        if (adminCode === departmentCode || adminCode === newRegionCode) {
+                            ruleApplies = true;
+                        }
+                    }
+
+                    if (ruleApplies) {
+                        const ruleKey = `${row.nom}|${row.type}|${row.adm}`;
+                        if (!relevantRules.has(ruleKey)) {
+                            const isRedList = type.includes('liste rouge');
+                            const descriptiveStatus = isRedList ? `${row.type} (${row.code}) (${row.adm})` : row.label;
+                            relevantRules.set(ruleKey, { species: row.nom, status: descriptiveStatus });
+                        }
+                    }
+                }
+            }
+        }
+        
+        console.log(`${relevantRules.size} règles pertinentes trouvées après pré-filtrage.`);
+
+        if (relevantRules.size === 0) {
+            return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) };
+        }
+
+        const patrimonialityRules = Array.from(relevantRules.values()).map(rule => `- ${rule.species}: ${rule.status}`).join('\n');
+        
+        // --- 3. Appel à l'IA avec un prompt court et ciblé (inchangé en logique, mais bien plus court) ---
         const prompt = `Tu es un expert botaniste pour la zone administrative française (département ${departmentCode}, région ${newRegionCode}). Ta mission est d'analyser une liste d'espèces observées et de déterminer lesquelles sont patrimoniales en te basant sur la réglementation locale fournie. Tu dois appliquer les règles suivantes avec la plus grande rigueur.
 
 **Règles Impératives d'Analyse :**
@@ -152,7 +167,7 @@ exports.handler = async function(event) {
 3.  **Règle de Gestion des Conflits :**
     * Si, pour un **MÊME NOM DE TAXON EXACT**, tu trouves des statuts contradictoires au sein d'une même liste (ex: un statut 'LC' et un statut 'VU' pour la liste rouge de la même région), tu dois **ignorer le statut de menace** et ne retenir que le statut 'LC'. Cette situation indique une erreur dans la source de données. Ne rapporte cette espèce comme patrimoniale que si un autre statut (ex: protection nationale) le justifie.
 
-**Réglementation et Statuts pour la Zone :**
+**Réglementation et Statuts pour la Zone (pré-filtrés pour les espèces observées) :**
 ${patrimonialityRules}
 
 **Liste des espèces observées sur le terrain (via GBIF) :**
@@ -162,7 +177,6 @@ ${uniqueSpeciesNames.join(', ')}
 En appliquant strictement les règles ci-dessus, compare la liste des espèces observées avec la réglementation. Retourne UNIQUEMENT un objet JSON valide contenant les espèces de la liste observée qui sont **effectivement patrimoniales**. Le format doit être: { "Nom de l'espèce observée": "Statut patrimonial justifié" }. Si aucune espèce n'est patrimoniale après analyse, retourne un objet JSON vide {}.`;
         
         const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
-        
         const geminiResp = await fetch(geminiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
