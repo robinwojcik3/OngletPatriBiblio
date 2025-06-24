@@ -54,7 +54,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const useGeolocationBtn = document.getElementById('use-geolocation-btn');
 
     let map = null;
-    let patrimonialLayerGroup = L.layerGroup(); // Un seul groupe de calques pour tous les marqueurs.
+    let patrimonialLayerGroup = L.layerGroup();
     let rulesByTaxonIndex = new Map();
     const SEARCH_RADIUS_KM = 2;
     const SPECIES_COLORS = ['#E6194B', '#3CB44B', '#FFE119', '#4363D8', '#F58231', '#911EB4', '#46F0F0', '#F032E6', '#BCF60C', '#FABEBE', '#800000', '#AA6E28', '#000075', '#A9A9A9'];
@@ -63,12 +63,63 @@ document.addEventListener('DOMContentLoaded', async () => {
     const OLD_REGIONS_TO_DEPARTMENTS = { 'Alsace': ['67', '68'], 'Aquitaine': ['24', '33', '40', '47', '64'], 'Auvergne': ['03', '15', '43', '63'], 'Basse-Normandie': ['14', '50', '61'], 'Bourgogne': ['21', '58', '71', '89'], 'Champagne-Ardenne': ['08', '10', '51', '52'], 'Franche-Comté': ['25', '39', '70', '90'], 'Haute-Normandie': ['27', '76'], 'Languedoc-Roussillon': ['11', '30', '34', '48', '66'], 'Limousin': ['19', '23', '87'], 'Lorraine': ['54', '55', '57', '88'], 'Midi-Pyrénées': ['09', '12', '31', '32', '46', '65', '81', '82'], 'Nord-Pas-de-Calais': ['59', '62'], 'Picardie': ['02', '60', '80'], 'Poitou-Charentes': ['16', '17', '79', '86'], 'Rhône-Alpes': ['01', '07', '26', '38', '42', '69', '73', '74'] };
     const ADMIN_NAME_TO_CODE_MAP = { "France": "FR", "Ain": "01", "Aisne": "02", "Allier": "03", "Alpes-de-Haute-Provence": "04", "Hautes-Alpes": "05", "Alpes-Maritimes": "06", "Ardèche": "07", "Ardennes": "08", "Ariège": "09", "Aube": "10", "Aude": "11", "Aveyron": "12", "Bouches-du-Rhône": "13", "Calvados": "14", "Cantal": "15", "Charente": "16", "Charente-Maritime": "17", "Cher": "18", "Corrèze": "19", "Corse-du-Sud": "2A", "Haute-Corse": "2B", "Côte-d'Or": "21", "Côtes-d'Armor": "22", "Creuse": "23", "Dordogne": "24", "Doubs": "25", "Drôme": "26", "Eure": "27", "Eure-et-Loir": "28", "Finistère": "29", "Gard": "30", "Haute-Garonne": "31", "Gers": "32", "Gironde": "33", "Hérault": "34", "Ille-et-Vilaine": "35", "Indre": "36", "Indre-et-Loire": "37", "Isère": "38", "Jura": "39", "Landes": "40", "Loir-et-Cher": "41", "Loire": "42", "Haute-Loire": "43", "Loire-Atlantique": "44", "Loiret": "45", "Lot": "46", "Lot-et-Garonne": "47", "Lozère": "48", "Maine-et-Loire": "49", "Manche": "50", "Marne": "51", "Haute-Marne": "52", "Mayenne": "53", "Meurthe-et-Moselle": "54", "Meuse": "55", "Morbihan": "56", "Moselle": "57", "Nièvre": "58", "Nord": "59", "Oise": "60", "Orne": "61", "Pas-de-Calais": "62", "Puy-de-Dôme": "63", "Pyrénées-Atlantiques": "64", "Hautes-Pyrénées": "65", "Pyrénées-Orientales": "66", "Bas-Rhin": "67", "Haut-Rhin": "68", "Rhône": "69", "Haute-Saône": "70", "Saône-et-Loire": "71", "Sarthe": "72", "Savoie": "73", "Haute-Savoie": "74", "Paris": "75", "Seine-Maritime": "76", "Seine-et-Marne": "77", "Yvelines": "78", "Deux-Sèvres": "79", "Somme": "80", "Tarn": "81", "Tarn-et-Garonne": "82", "Var": "83", "Vaucluse": "84", "Vendée": "85", "Vienne": "86", "Haute-Vienne": "87", "Vosges": "88", "Yonne": "89", "Territoire de Belfort": "90", "Essonne": "91", "Hauts-de-Seine": "92", "Seine-Saint-Denis": "93", "Val-de-Marne": "94", "Val-d'Oise": "95", "Auvergne-Rhône-Alpes": "84", "Bourgogne-Franche-Comté": "27", "Bretagne": "53", "Centre-Val de Loire": "24", "Corse": "94", "Grand Est": "44", "Hauts-de-France": "32", "Île-de-France": "11", "Normandie": "28", "Nouvelle-Aquitaine": "75", "Occitanie": "76", "Pays de la Loire": "52", "Provence-Alpes-Côte d'Azur": "93", "Guadeloupe": "01", "Martinique": "02", "Guyane": "03", "La Réunion": "04", "Mayotte": "06" };
 
-    const setStatus = (message, isLoading = false) => { /* ... (inchangé) ... */ };
-    const indexRulesFromCSV = (csvText) => { /* ... (inchangé) ... */ };
-    const initializeApp = async () => { /* ... (inchangé) ... */ };
-    const initializeMap = (coords) => { /* ... (inchangé) ... */ };
+    const setStatus = (message, isLoading = false) => {
+        statusDiv.innerHTML = '';
+        if (isLoading) {
+            const spinner = document.createElement('div');
+            spinner.className = 'loading';
+            statusDiv.appendChild(spinner);
+        }
+        if (message) statusDiv.innerHTML += `<p>${message}</p>`;
+    };
+    
+    // --- 3. FONCTION D'INDEXATION CÔTÉ CLIENT ---
+    const indexRulesFromCSV = (csvText) => {
+        const lines = csvText.trim().split(/\r?\n/);
+        const header = lines.shift().split(';').map(h => h.trim().replace(/"/g, ''));
+        const indices = { adm: header.indexOf('LB_ADM_TR'), nom: header.indexOf('LB_NOM'), code: header.indexOf('CODE_STATUT'), type: header.indexOf('LB_TYPE_STATUT'), label: header.indexOf('LABEL_STATUT') };
+        
+        const index = new Map();
+        lines.forEach(line => {
+            const cols = line.split(';');
+            const rowData = {
+                adm: cols[indices.adm]?.trim().replace(/"/g, '') || '', nom: cols[indices.nom]?.trim().replace(/"/g, '') || '',
+                code: cols[indices.code]?.trim().replace(/"/g, '') || '', type: cols[indices.type]?.trim().replace(/"/g, '') || '',
+                label: cols[indices.label]?.trim().replace(/"/g, '') || ''
+            };
+            if (rowData.nom && rowData.type) {
+                if (!index.has(rowData.nom)) { index.set(rowData.nom, []); }
+                index.get(rowData.nom).push(rowData);
+            }
+        });
+        return index;
+    };
+
+    // --- 4. CHARGEMENT ET PRÉPARATION DES DONNÉES AU DÉMARRAGE ---
+    const initializeApp = async () => {
+        try {
+            setStatus("Chargement du référentiel BDCstatut...", true);
+            const response = await fetch('/BDCstatut.csv');
+            if (!response.ok) throw new Error("Le référentiel BDCstatut.csv est introuvable.");
+            const csvText = await response.text();
+            rulesByTaxonIndex = indexRulesFromCSV(csvText);
+            setStatus("Prêt. Choisissez une méthode de recherche.");
+            console.log(`Référentiel chargé, ${rulesByTaxonIndex.size} taxons indexés.`);
+        } catch (error) {
+            setStatus(`Erreur critique au chargement : ${error.message}`);
+            console.error(error);
+        }
+    };
+
+    // --- 5. LOGIQUE D'APPLICATION ---
+    const initializeMap = (coords) => {
+        if (map) map.remove();
+        mapContainer.style.display = 'block';
+        map = L.map(mapContainer).setView([coords.latitude, coords.longitude], 13);
+        L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: 'Map data: © OpenStreetMap contributors' }).addTo(map);
+        L.circle([coords.latitude, coords.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
+    };
    
-    // *** REFACTORING MAJEUR : Logique de cartographie et de regroupement ***
     const fetchAndDisplayAllPatrimonialOccurrences = async (patrimonialMap, wkt, initialOccurrences) => {
         const speciesNames = Object.keys(patrimonialMap);
         if (speciesNames.length === 0) return;
@@ -99,13 +150,16 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const pageData = await resp.json();
                     if (pageData.results?.length > 0) {
                         pageData.results.forEach(occ => {
-                            occ.speciesName = speciesName; // Ajout du contexte pour l'agrégation
+                            occ.speciesName = speciesName;
                             occ.color = color;
                         });
                         speciesOccs = speciesOccs.concat(pageData.results);
                     }
                     endOfRecords = pageData.endOfRecords;
-                } catch (e) { break; }
+                } catch (e) { 
+                    console.error("Erreur durant la cartographie détaillée pour :", speciesName, e);
+                    break; 
+                }
             }
             allOccurrencesWithContext = allOccurrencesWithContext.concat(speciesOccs);
         }
@@ -126,7 +180,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
         // --- PHASE 3: AFFICHAGE INTELLIGENT ---
-        patrimonialLayerGroup.clearLayers(); // Vider les anciens marqueurs
+        patrimonialLayerGroup.clearLayers();
         for (const location of locations.values()) {
             const count = location.speciesList.length;
             const iconHtml = `<div class="marker-cluster-icon" style="background-color: ${count > 1 ? '#c62828' : location.speciesList[0].color};"><span>${count}</span></div>`;
@@ -174,15 +228,97 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     const runAnalysis = async (coords) => {
-        // ... (Cette fonction reste inchangée)
+        try {
+            resultsContainer.innerHTML = '';
+            mapContainer.style.display = 'none';
+            initializeMap(coords);
+
+            setStatus("Étape 1/2: Inventaire de la flore locale via GBIF...", true);
+            const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
+            let allOccurrences = [];
+            const maxPages = 12;
+            const limit = 1000;
+            for (let page = 0; page < maxPages; page++) {
+                const offset = page * limit;
+                setStatus(`Étape 1/2: Inventaire de la flore locale via GBIF... (Page ${page + 1}/${maxPages})`, true);
+                const gbifUrl = `https://api.gbif.org/v1/occurrence/search?limit=${limit}&offset=${offset}&geometry=${encodeURIComponent(wkt)}&kingdomKey=6`;
+                const gbifResp = await fetch(gbifUrl);
+                if (!gbifResp.ok) throw new Error("L'API GBIF est indisponible.");
+                const pageData = await gbifResp.json();
+                if (pageData.results?.length > 0) { allOccurrences = allOccurrences.concat(pageData.results); }
+                if (pageData.endOfRecords) { break; }
+            }
+            if (allOccurrences.length === 0) { throw new Error("Aucune occurrence de plante trouvée à proximité."); }
+            
+            setStatus("Étape 2/2: Analyse des données...", true);
+            const uniqueSpeciesNames = [...new Set(allOccurrences.map(o => o.species).filter(Boolean))];
+            const relevantRules = new Map();
+            const { departement, region } = (await (await fetch(`https://geo.api.gouv.fr/communes?lat=${coords.latitude}&lon=${coords.longitude}&fields=departement,region`)).json())[0];
+
+            for (const speciesName of uniqueSpeciesNames) {
+                const rulesForThisTaxon = rulesByTaxonIndex.get(speciesName);
+                if (rulesForThisTaxon) {
+                    for (const row of rulesForThisTaxon) {
+                        let ruleApplies = false;
+                        const type = row.type.toLowerCase();
+                        if (ADMIN_NAME_TO_CODE_MAP[row.adm] === 'FR' || type.includes('nationale')) { ruleApplies = true; } 
+                        else if (OLD_REGIONS_TO_DEPARTMENTS[row.adm]?.includes(departement.code)) { ruleApplies = true; } 
+                        else { const adminCode = ADMIN_NAME_TO_CODE_MAP[row.adm]; if (adminCode === departement.code || adminCode === region.code) { ruleApplies = true; } }
+
+                        if (ruleApplies) {
+                            if (nonPatrimonialLabels.has(row.label) || type.includes('déterminante znieff')) { continue; }
+                            const isRedList = type.includes('liste rouge');
+                            if (isRedList && nonPatrimonialRedlistCodes.has(row.code)) { continue; }
+
+                            const ruleKey = `${row.nom}|${row.type}|${row.adm}`;
+                            if (!relevantRules.has(ruleKey)) {
+                                const descriptiveStatus = isRedList ? `${row.type} (${row.code}) (${row.adm})` : row.label;
+                                relevantRules.set(ruleKey, { species: row.nom, status: descriptiveStatus });
+                            }
+                        }
+                    }
+                }
+            }
+
+            const analysisResp = await fetch('/.netlify/functions/analyze-patrimonial-status', {
+                method: 'POST',
+                body: JSON.stringify({ 
+                    relevantRules: Array.from(relevantRules.values()), 
+                    uniqueSpeciesNames, 
+                    coords 
+                })
+            });
+            if (!analysisResp.ok) { const errBody = await analysisResp.text(); throw new Error(`Le service d'analyse a échoué: ${errBody}`); }
+            const patrimonialMap = await analysisResp.json();
+            
+            displayResults(allOccurrences, patrimonialMap, wkt);
+
+        } catch (error) {
+            console.error("Erreur durant l'analyse:", error);
+            setStatus(`Erreur : ${error.message}`);
+            if (mapContainer) mapContainer.style.display = 'none';
+        }
     };
      
     const handleAddressSearch = async () => {
-        // ... (Cette fonction reste inchangée)
+        const address = addressInput.value.trim();
+        if (!address) return alert("Veuillez saisir une adresse.");
+        try {
+            setStatus(`Géocodage de l'adresse...`, true);
+            const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`);
+            if (!resp.ok) throw new Error("Service de géocodage indisponible.");
+            const data = await resp.json();
+            if (data.length === 0) throw new Error("Adresse non trouvée.");
+            runAnalysis({ latitude: parseFloat(data[0].lat), longitude: parseFloat(data[0].lon) });
+        } catch (error) { setStatus(`Erreur : ${error.message}`); }
     };
     
     const handleGeolocationSearch = async () => {
-        // ... (Cette fonction reste inchangée)
+        try {
+            setStatus("Récupération de votre position...", true);
+            const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 }));
+            runAnalysis(coords);
+        } catch(error) { setStatus(`Erreur de géolocalisation : ${error.message}`); }
     };
     
     // --- 6. DÉMARRAGE DE L'APPLICATION ---
