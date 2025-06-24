@@ -67,18 +67,15 @@ document.addEventListener('DOMContentLoaded', () => {
          L.circle([coords.latitude, coords.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
      };
     
-    // *** NOUVEAU *** : Fonction dédiée à la cartographie exhaustive des espèces patrimoniales.
     const fetchAndDisplayAllPatrimonialOccurrences = async (patrimonialMap, wkt, initialOccurrences) => {
         const speciesNames = Object.keys(patrimonialMap);
         if (speciesNames.length === 0) return;
 
         setStatus("Étape 3/3: Cartographie détaillée des espèces patrimoniales...", true);
 
-        // Effacer les marqueurs de l'inventaire initial pour les remplacer.
         speciesLayers.forEach(layer => map.removeLayer(layer));
         speciesLayers.clear();
         
-        // Créer un index rapide pour trouver le taxonKey (plus fiable que le nom pour les requêtes)
         const taxonKeyMap = new Map();
         initialOccurrences.forEach(occ => {
             if (occ.species && occ.speciesKey && !taxonKeyMap.has(occ.species)) {
@@ -88,10 +85,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         for (const [index, speciesName] of speciesNames.entries()) {
             const taxonKey = taxonKeyMap.get(speciesName);
-            if (!taxonKey) continue; // On passe si on ne trouve pas de clé de taxon
+            if (!taxonKey) continue;
 
             let allSpeciesOccurrences = [];
-            const maxPages = 10; // On s'autorise plus de pages pour une recherche ciblée.
+            const maxPages = 10;
             const limit = 1000;
             let endOfRecords = false;
 
@@ -166,7 +163,6 @@ document.addEventListener('DOMContentLoaded', () => {
          table.appendChild(tableBody);
          resultsContainer.appendChild(table);
 
-         // Lancement de la cartographie exhaustive après affichage du tableau.
          fetchAndDisplayAllPatrimonialOccurrences(patrimonialMap, wkt, occurrences);
      };
 
@@ -180,7 +176,7 @@ document.addEventListener('DOMContentLoaded', () => {
              
              const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
              let allOccurrences = [];
-             const maxPages = 6;
+             const maxPages = 12; // *** MODIFICATION : Plafond augmenté à 12 000 occurrences. ***
              const limit = 1000;
 
              for (let page = 0; page < maxPages; page++) {
@@ -207,7 +203,6 @@ document.addEventListener('DOMContentLoaded', () => {
              if (!analysisResp.ok) { const errBody = await analysisResp.text(); throw new Error(`Le service d'analyse a échoué: ${errBody}`); }
              const patrimonialMap = await analysisResp.json();
              
-             // On passe le WKT à la fonction d'affichage pour qu'elle puisse le réutiliser.
              displayResults(allOccurrences, patrimonialMap, wkt);
 
          } catch (error) {
