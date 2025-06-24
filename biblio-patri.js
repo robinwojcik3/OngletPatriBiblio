@@ -352,14 +352,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const displayObservations = (occurrences) => {
         observationsLayerGroup.clearLayers();
-        occurrences.forEach(o => {
+        const floraOccs = occurrences.filter(o =>
+            o.phylum && /tracheophyta/i.test(o.phylum)
+        );
+        floraOccs.forEach(o => {
             if (o.decimalLatitude && o.decimalLongitude && o.species) {
                 const m = L.marker([o.decimalLatitude, o.decimalLongitude]);
                 m.bindTooltip(`<i>${o.species}</i>`, { permanent: true, direction: 'right', offset: [8,0] });
                 observationsLayerGroup.addLayer(m);
             }
         });
-        obsStatusDiv.innerHTML = `${occurrences.length} observation(s) trouvée(s).`;
+        obsStatusDiv.innerHTML = `${floraOccs.length} observation(s) de flore trouvée(s).`;
     };
 
     const loadObservations = async () => {
@@ -370,7 +373,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             initializeObservationMap(coords);
             obsStatusDiv.textContent = 'Recherche des occurrences GBIF...';
             const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+OBS_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+OBS_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
-            const url = `https://api.gbif.org/v1/occurrence/search?limit=300&geometry=${encodeURIComponent(wkt)}`;
+            const url = `https://api.gbif.org/v1/occurrence/search?limit=300&geometry=${encodeURIComponent(wkt)}&taxonKey=7707728`;
             const resp = await fetch(url);
             if (!resp.ok) throw new Error("L'API GBIF est indisponible.");
             const data = await resp.json();
