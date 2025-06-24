@@ -43,9 +43,15 @@ const ADMIN_NAME_TO_CODE_MAP = {
     "Guadeloupe": "01", "Martinique": "02", "Guyane": "03", "La Réunion": "04", "Mayotte": "06",
 };
 
+// *** NOUVEAU ***
+// Définition de la liste des statuts à ignorer car non-patrimoniaux.
+const nonPatrimonialLabels = new Set([
+    "Liste des espèces végétales sauvages pouvant faire l'objet d'une réglementation préfectorale dans les départements d'outre-mer : Article 1"
+]);
+
+
 /**
  * @description Indexe les règles du CSV par nom de taxon pour un accès ultra-rapide.
- * C'est la clé de l'optimisation pour éviter les timeouts.
  * @returns {Map<string, Object[]>} - Une map où la clé est le nom du taxon et la valeur est un tableau de ses règles.
  */
 const indexRulesByTaxon = () => {
@@ -95,7 +101,6 @@ exports.handler = async function(event) {
         const { discoveredOccurrences, coords } = JSON.parse(event.body);
         if (!discoveredOccurrences || !coords) return { statusCode: 400, body: 'Données d\'entrée invalides.' };
 
-        // --- 1. Obtention du contexte géographique (inchangé) ---
         const geoApiUrl = `https://geo.api.gouv.fr/communes?lat=${coords.latitude}&lon=${coords.longitude}&fields=departement,region`;
         const geoResp = await fetch(geoApiUrl);
         if (!geoResp.ok) throw new Error("Service de géolocalisation administrative indisponible.");
@@ -105,17 +110,13 @@ exports.handler = async function(event) {
         const departmentCode = departement.code;
         const newRegionCode = region.code;
 
-        // --- 2. Construction de la liste de règles pertinentes (logique optimisée) ---
         const uniqueSpeciesNames = [...new Set(discoveredOccurrences.map(o => o.species).filter(Boolean))];
         const relevantRules = new Map();
 
-        // On itère sur les espèces trouvées (petite liste) au lieu de tout le CSV.
         for (const speciesName of uniqueSpeciesNames) {
-            // On récupère les règles uniquement pour cette espèce via l'index rapide.
             const rulesForThisTaxon = rulesByTaxonIndex.get(speciesName);
 
             if (rulesForThisTaxon) {
-                // On applique le filtre géographique sur ce petit sous-ensemble de règles.
                 for (const row of rulesForThisTaxon) {
                     let ruleApplies = false;
                     const type = row.type.toLowerCase();
@@ -131,6 +132,12 @@ exports.handler = async function(event) {
                     }
 
                     if (ruleApplies) {
+                        // *** NOUVEAU ***
+                        // On vérifie si le label de la règle est dans la liste d'exclusion.
+                        if (nonPatrimonialLabels.has(row.label)) {
+                            continue; // Si oui, on ignore cette règle et on passe à la suivante.
+                        }
+
                         const ruleKey = `${row.nom}|${row.type}|${row.adm}`;
                         if (!relevantRules.has(ruleKey)) {
                             const isRedList = type.includes('liste rouge');
@@ -150,7 +157,6 @@ exports.handler = async function(event) {
 
         const patrimonialityRules = Array.from(relevantRules.values()).map(rule => `- ${rule.species}: ${rule.status}`).join('\n');
         
-        // --- 3. Appel à l'IA avec un prompt court et ciblé (inchangé en logique, mais bien plus court) ---
         const prompt = `Tu es un expert botaniste pour la zone administrative française (département ${departmentCode}, région ${newRegionCode}). Ta mission est d'analyser une liste d'espèces observées et de déterminer lesquelles sont patrimoniales en te basant sur la réglementation locale fournie. Tu dois appliquer les règles suivantes avec la plus grande rigueur.
 
 **Règles Impératives d'Analyse :**
