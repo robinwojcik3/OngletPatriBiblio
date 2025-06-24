@@ -4,4 +4,4 @@
   publish = "."
 
 [functions]
-  included_files = ["netlify/functions/BDCstatut.csv"]
+  # La ligne "included_files" est supprimée car le CSV est maintenant public.
