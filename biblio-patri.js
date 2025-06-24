@@ -49,7 +49,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const observationsTabBtn = document.getElementById('observations-tab-btn');
     const analysisTab = document.getElementById('analysis-tab');
     const observationsTab = document.getElementById('observations-tab');
-    const loadObservationsBtn = document.getElementById('load-observations-btn');
     const obsStatusDiv = document.getElementById('obs-status');
     const obsMapContainer = document.getElementById('observations-map');
 
@@ -59,7 +58,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let observationsLayerGroup = L.layerGroup();
     let rulesByTaxonIndex = new Map();
     const SEARCH_RADIUS_KM = 2;
-    const OBS_RADIUS_KM = 0.1;
+    const OBS_RADIUS_KM = 0.2;
     const SPECIES_COLORS = ['#E6194B', '#3CB44B', '#FFE119', '#4363D8', '#F58231', '#911EB4', '#46F0F0', '#F032E6', '#BCF60C', '#FABEBE', '#800000', '#AA6E28', '#000075', '#A9A9A9'];
     const nonPatrimonialLabels = new Set(["Liste des espèces végétales sauvages pouvant faire l'objet d'une réglementation préfectorale dans les départements d'outre-mer : Article 1"]);
     const nonPatrimonialRedlistCodes = new Set(['LC', 'DD', 'NA', 'NE']);
@@ -390,6 +389,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     useGeolocationBtn.addEventListener('click', handleGeolocationSearch);
     addressInput.addEventListener('keypress', (e) => e.key === 'Enter' && handleAddressSearch());
     analysisTabBtn.addEventListener('click', () => switchTab('analysis'));
-    observationsTabBtn.addEventListener('click', () => switchTab('observations'));
-    loadObservationsBtn.addEventListener('click', loadObservations);
+    observationsTabBtn.addEventListener('click', () => {
+        switchTab('observations');
+        loadObservations();
+    });
 });
