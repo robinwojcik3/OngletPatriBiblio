@@ -113,39 +113,49 @@ exports.handler = async function(event) {
         const threatCodes = new Set(['NT', 'VU', 'EN', 'CR']);
         const localRules = new Map();
 
+        // --- LOGIQUE DE FILTRAGE ADMINISTRATIVE RENFORCÉE ---
         statusData.forEach(row => {
             const type = row.type.toLowerCase();
-            const isPatrimonial = (type.includes('liste rouge') && threatCodes.has(row.code)) || type.includes('protection') || type.includes('directive');
-            if (!isPatrimonial) return; // Si le statut n'est pas patrimonial, on passe au suivant.
-
             const adminName = row.adm;
+
+            // Étape 1 : Vérifier si le statut est patrimonial
+            const isRedList = type.includes('liste rouge') && threatCodes.has(row.code);
+            const isProtection = type.includes('protection');
+            const isDirective = type.includes('directive');
+            if (!isRedList && !isProtection && !isDirective) {
+                return; // Statut non pertinent, on passe au suivant.
+            }
+
             let ruleApplies = false;
 
-            // --- LOGIQUE DE FILTRAGE ADMINISTRATIVE HIERARCHISÉE ---
-            // 1. Statut National (ex: "France")
-            if (ADMIN_NAME_TO_CODE_MAP[adminName] === 'FR') {
+            // Étape 2 : Vérifier la portée géographique du statut
+            // Cas 1 : Statuts à portée NATIONALE (prioritaire)
+            if (ADMIN_NAME_TO_CODE_MAP[adminName] === 'FR' || type.includes('nationale')) {
                 ruleApplies = true;
             }
-            // 2. Statut d'Ancienne Région
-            else if (OLD_REGIONS_TO_DEPARTMENTS[adminName]) {
-                if (OLD_REGIONS_TO_DEPARTMENTS[adminName].includes(departmentCode)) {
-                    ruleApplies = true;
-                }
-            }
-            // 3. Statut de Département ou de Nouvelle Région
+            // Cas 2 : Statuts à portée LOCALE (non-nationaux)
             else {
-                const adminCode = ADMIN_NAME_TO_CODE_MAP[adminName];
-                if (adminCode === departmentCode || adminCode === newRegionCode) {
-                    ruleApplies = true;
+                // Logique pour statuts de protection, directives, et listes rouges locales
+                if (OLD_REGIONS_TO_DEPARTMENTS[adminName]) { // Statut d'une ancienne région
+                    if (OLD_REGIONS_TO_DEPARTMENTS[adminName].includes(departmentCode)) {
+                        ruleApplies = true;
+                    }
+                } else { // Statut départemental ou de nouvelle région
+                    const adminCode = ADMIN_NAME_TO_CODE_MAP[adminName];
+                    if (adminCode === departmentCode || adminCode === newRegionCode) {
+                        ruleApplies = true;
+                    }
                 }
             }
             
+            // Étape 3 : Ajouter la règle si elle s'applique
             if (ruleApplies) {
                 if (!localRules.has(row.nom)) {
                     localRules.set(row.nom, row.label);
                 }
             }
         });
+
         console.log(`${localRules.size} règles de patrimonialité pertinentes trouvées pour la zone.`);
 
         const uniqueSpeciesNames = [...new Set(discoveredOccurrences.map(o => o.species).filter(Boolean))];
