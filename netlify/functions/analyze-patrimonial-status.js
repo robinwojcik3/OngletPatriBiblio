@@ -43,60 +43,39 @@ const ADMIN_NAME_TO_CODE_MAP = {
     "Guadeloupe": "01", "Martinique": "02", "Guyane": "03", "La Réunion": "04", "Mayotte": "06",
 };
 
-// *** NOUVEAU ***
-// Définition de la liste des statuts à ignorer car non-patrimoniaux.
 const nonPatrimonialLabels = new Set([
     "Liste des espèces végétales sauvages pouvant faire l'objet d'une réglementation préfectorale dans les départements d'outre-mer : Article 1"
 ]);
 
-
-/**
- * @description Indexe les règles du CSV par nom de taxon pour un accès ultra-rapide.
- * @returns {Map<string, Object[]>} - Une map où la clé est le nom du taxon et la valeur est un tableau de ses règles.
- */
 const indexRulesByTaxon = () => {
     const lines = statusDataRaw.trim().split(/\r?\n/);
     const header = lines.shift().split(';').map(h => h.trim().replace(/"/g, ''));
     const indices = { 
-        adm: header.indexOf('LB_ADM_TR'), 
-        nom: header.indexOf('LB_NOM'), 
-        code: header.indexOf('CODE_STATUT'), 
-        type: header.indexOf('LB_TYPE_STATUT'), 
-        label: header.indexOf('LABEL_STATUT') 
+        adm: header.indexOf('LB_ADM_TR'), nom: header.indexOf('LB_NOM'), code: header.indexOf('CODE_STATUT'), 
+        type: header.indexOf('LB_TYPE_STATUT'), label: header.indexOf('LABEL_STATUT') 
     };
-
-    if (Object.values(indices).some(i => i === -1)) {
-        throw new Error(`Le format du fichier CSV BDCstatut.csv est invalide. Colonnes manquantes.`);
-    }
+    if (Object.values(indices).some(i => i === -1)) { throw new Error(`Le format du fichier CSV BDCstatut.csv est invalide. Colonnes manquantes.`); }
     
     const rulesIndex = new Map();
     lines.forEach(line => {
         const cols = line.split(';');
         const rowData = {
-            adm: cols[indices.adm]?.trim().replace(/"/g, '') || '',
-            nom: cols[indices.nom]?.trim().replace(/"/g, '') || '',
-            code: cols[indices.code]?.trim().replace(/"/g, '') || '',
-            type: cols[indices.type]?.trim().replace(/"/g, '') || '',
+            adm: cols[indices.adm]?.trim().replace(/"/g, '') || '', nom: cols[indices.nom]?.trim().replace(/"/g, '') || '',
+            code: cols[indices.code]?.trim().replace(/"/g, '') || '', type: cols[indices.type]?.trim().replace(/"/g, '') || '',
             label: cols[indices.label]?.trim().replace(/"/g, '') || ''
         };
-
         if (rowData.nom && rowData.type) {
-            if (!rulesIndex.has(rowData.nom)) {
-                rulesIndex.set(rowData.nom, []);
-            }
+            if (!rulesIndex.has(rowData.nom)) { rulesIndex.set(rowData.nom, []); }
             rulesIndex.get(rowData.nom).push(rowData);
         }
     });
     return rulesIndex;
 };
 
-// --- Indexation exécutée une seule fois au démarrage de la fonction (cold start) ---
 const rulesByTaxonIndex = indexRulesByTaxon();
-
 
 exports.handler = async function(event) {
     if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
-
     try {
         const { discoveredOccurrences, coords } = JSON.parse(event.body);
         if (!discoveredOccurrences || !coords) return { statusCode: 400, body: 'Données d\'entrée invalides.' };
@@ -115,29 +94,16 @@ exports.handler = async function(event) {
 
         for (const speciesName of uniqueSpeciesNames) {
             const rulesForThisTaxon = rulesByTaxonIndex.get(speciesName);
-
             if (rulesForThisTaxon) {
                 for (const row of rulesForThisTaxon) {
                     let ruleApplies = false;
                     const type = row.type.toLowerCase();
-                    if (ADMIN_NAME_TO_CODE_MAP[row.adm] === 'FR' || type.includes('nationale')) {
-                        ruleApplies = true;
-                    } else if (OLD_REGIONS_TO_DEPARTMENTS[row.adm]?.includes(departmentCode)) {
-                        ruleApplies = true;
-                    } else {
-                        const adminCode = ADMIN_NAME_TO_CODE_MAP[row.adm];
-                        if (adminCode === departmentCode || adminCode === newRegionCode) {
-                            ruleApplies = true;
-                        }
-                    }
+                    if (ADMIN_NAME_TO_CODE_MAP[row.adm] === 'FR' || type.includes('nationale')) { ruleApplies = true; } 
+                    else if (OLD_REGIONS_TO_DEPARTMENTS[row.adm]?.includes(departmentCode)) { ruleApplies = true; } 
+                    else { const adminCode = ADMIN_NAME_TO_CODE_MAP[row.adm]; if (adminCode === departmentCode || adminCode === newRegionCode) { ruleApplies = true; } }
 
                     if (ruleApplies) {
-                        // *** NOUVEAU ***
-                        // On vérifie si le label de la règle est dans la liste d'exclusion.
-                        if (nonPatrimonialLabels.has(row.label)) {
-                            continue; // Si oui, on ignore cette règle et on passe à la suivante.
-                        }
-
+                        if (nonPatrimonialLabels.has(row.label)) { continue; }
                         const ruleKey = `${row.nom}|${row.type}|${row.adm}`;
                         if (!relevantRules.has(ruleKey)) {
                             const isRedList = type.includes('liste rouge');
@@ -150,76 +116,48 @@ exports.handler = async function(event) {
         }
         
         console.log(`${relevantRules.size} règles pertinentes trouvées après pré-filtrage.`);
+        const patrimonialityRules = relevantRules.size > 0 ? Array.from(relevantRules.values()).map(rule => `- ${rule.species}: ${rule.status}`).join('\n') : "Aucune règle par correspondance directe.";
 
-        if (relevantRules.size === 0) {
-            return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) };
-        }
-
-        const patrimonialityRules = Array.from(relevantRules.values()).map(rule => `- ${rule.species}: ${rule.status}`).join('\n');
-        
-        const prompt = `Tu es un expert botaniste pour la zone administrative française (département ${departmentCode}, région ${newRegionCode}). Ta mission est d'analyser une liste d'espèces observées et de déterminer lesquelles sont patrimoniales en te basant sur la réglementation locale fournie. Tu dois appliquer les règles suivantes avec la plus grande rigueur.
+        const prompt = `Tu es un expert botaniste pour la zone administrative française (département ${departmentCode}, région ${newRegionCode}). Ta mission est d'analyser une liste d'espèces observées et de déterminer lesquelles sont patrimoniales.
 
 **Règles Impératives d'Analyse :**
+1.  **Précision Taxonomique :** Un statut s'applique UNIQUEMENT au taxon exact (espèce, sous-espèce, variété). Le statut d'une sous-espèce ou variété ne doit pas être appliqué à l'espèce parente.
+2.  **Définition de Patrimonialité :** Une espèce est patrimoniale si elle est protégée, réglementée, ou menacée (NT, VU, EN, CR) sur une liste rouge pertinente. Le statut 'LC' (Préoccupation mineure) n'est PAS patrimonial.
+3.  **Gestion des Conflits :** Si pour un même taxon, une règle 'LC' et une règle de menace coexistent pour la même liste, la règle 'LC' a priorité.
 
-1.  **Règle d'Or de Précision Taxonomique (Priorité Haute) :**
-    * Un statut de protection ou de menace s'applique **UNIQUEMENT** au taxon exact (espèce, sous-espèce, variété) mentionné dans la règle.
-    * Le statut d'une sous-espèce (ex: \`subsp.\`) ou d'une variété (ex: \`var.\`) **NE DOIT PAS** être appliqué à l'espèce parente.
-    * **Exemple concret :** Si une espèce observée est \`Anacamptis pyramidalis\` et qu'une règle concerne \`Anacamptis pyramidalis var. tanayensis\`, cette règle ne s'applique PAS. L'espèce \`Anacamptis pyramidalis\` n'hérite pas du statut de sa variété.
-
-2.  **Règles de Définition de la Patrimonialité :**
-    * Une espèce est considérée comme patrimoniale si elle est protégée, réglementée, ou listée comme menacée (NT, VU, EN, CR) sur une liste rouge pertinente.
-    * Le statut "Préoccupation mineure" (LC) n'est **PAS** un statut patrimonial.
-
-3.  **Règle de Gestion des Conflits :**
-    * Si, pour un **MÊME NOM DE TAXON EXACT**, tu trouves des statuts contradictoires au sein d'une même liste (ex: un statut 'LC' et un statut 'VU' pour la liste rouge de la même région), tu dois **ignorer le statut de menace** et ne retenir que le statut 'LC'. Cette situation indique une erreur dans la source de données. Ne rapporte cette espèce comme patrimoniale que si un autre statut (ex: protection nationale) le justifie.
-
-**Réglementation et Statuts pour la Zone (pré-filtrés pour les espèces observées) :**
+**1. Analyse par Correspondance Directe :**
+Voici les règles pré-filtrées pour les espèces observées. Applique les règles ci-dessus à cette liste.
 ${patrimonialityRules}
 
-**Liste des espèces observées sur le terrain (via GBIF) :**
-${uniqueSpeciesNames.join(', ')}
+**2. Analyse Complémentaire par Synonymie (si nécessaire) :**
+Pour les espèces observées qui n'ont pas de correspondance directe ci-dessus, utilise tes connaissances en taxonomie pour vérifier si elles sont des synonymes bien connus d'un taxon qui possède un statut patrimonial dans la flore française.
 
 **Tâche Finale :**
-En appliquant strictement les règles ci-dessus, compare la liste des espèces observées avec la réglementation. Retourne UNIQUEMENT un objet JSON valide contenant les espèces de la liste observée qui sont **effectivement patrimoniales**. Le format doit être: { "Nom de l'espèce observée": "Statut patrimonial justifié" }. Si aucune espèce n'est patrimoniale après analyse, retourne un objet JSON vide {}.`;
+Synthétise les résultats des deux analyses. Retourne UNIQUEMENT un objet JSON valide contenant toutes les espèces observées qui sont **effectivement patrimoniales**.
+Le format doit être : { "Nom de l'espèce observée": ["Statut 1", "Statut 2", ...] }.
+La valeur pour chaque espèce doit être un **TABLEAU de chaînes de caractères**, chaque chaîne représentant un statut patrimonial valide. Si une espèce n'a qu'un seul statut, retourne un tableau avec un seul élément. Si aucune espèce n'est patrimoniale après l'analyse complète, retourne un objet JSON vide {}.
+
+**Liste des espèces observées :**
+${uniqueSpeciesNames.join(', ')}`;
         
         const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
         const geminiResp = await fetch(geminiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
         });
 
-        if (!geminiResp.ok) {
-            const errorBody = await geminiResp.text();
-            console.error("Erreur de l'API Gemini:", errorBody);
-            throw new Error(`L'API d'analyse a retourné une erreur: ${geminiResp.statusText}`);
-        }
+        if (!geminiResp.ok) { const errorBody = await geminiResp.text(); console.error("Erreur de l'API Gemini:", errorBody); throw new Error(`L'API d'analyse a retourné une erreur: ${geminiResp.statusText}`); }
         
         const geminiData = await geminiResp.json();
         let patrimonialMap = {};
         if (geminiData.candidates && geminiData.candidates[0].content && geminiData.candidates[0].content.parts[0]) {
             const jsonString = geminiData.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
-            try {
-                patrimonialMap = JSON.parse(jsonString);
-            } catch (parseError) {
-                console.error("Erreur de parsing de la réponse JSON de Gemini:", parseError, "Réponse brute:", jsonString);
-                throw new Error("L'API d'analyse a retourné une réponse mal formée.");
-            }
-        } else {
-            console.warn("Réponse de Gemini inattendue ou vide:", JSON.stringify(geminiData, null, 2));
-        }
+            try { patrimonialMap = JSON.parse(jsonString); } 
+            catch (parseError) { console.error("Erreur de parsing de la réponse JSON de Gemini:", parseError, "Réponse brute:", jsonString); throw new Error("L'API d'analyse a retourné une réponse mal formée."); }
+        } else { console.warn("Réponse de Gemini inattendue ou vide:", JSON.stringify(geminiData, null, 2)); }
 
-        return {
-            statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(patrimonialMap)
-        };
-
+        return { statusCode: 200, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patrimonialMap) };
     } catch (error) {
         console.error("Erreur dans la fonction analyze-patrimonial-status:", error);
-        return { 
-            statusCode: 500, 
-            body: JSON.stringify({ error: error.message }) 
-        };
+        return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
     }
 };

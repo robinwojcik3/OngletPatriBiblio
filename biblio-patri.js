@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
      let map = null;
      let speciesLayers = new Map();
-     const SEARCH_RADIUS_KM = 5;
+     const SEARCH_RADIUS_KM = 3; 
      const SPECIES_COLORS = ['#E6194B', '#3CB44B', '#FFE119', '#4363D8', '#F58231', '#911EB4', '#46F0F0', '#F032E6', '#BCF60C', '#FABEBE', '#800000', '#AA6E28', '#000075', '#A9A9A9'];
      
      const setStatus = (message, isLoading = false) => {
@@ -89,7 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
              setStatus(`Aucune occurrence d'espèce patrimoniale trouvée dans ce rayon de ${SEARCH_RADIUS_KM} km.`);
              return;
          }
-         setStatus(`${sortedSpecies.length} espèce(s) patrimoniale(s) trouvée(s) à proximité.`);
+         setStatus(`${Object.keys(patrimonialMap).length} espèce(s) patrimoniale(s) trouvée(s) à proximité.`);
          
          const tableBody = document.createElement('tbody');
          sortedSpecies.forEach((species, index) => {
@@ -101,9 +101,13 @@ document.addEventListener('DOMContentLoaded', () => {
              speciesLayers.set(species.name, layerGroup);
 
              const row = tableBody.insertRow();
-             // *** MODIFICATION - Ligne 104 ***
-             // Suppression des cellules "Occurrences" et "Lien INPN". La colonne "label" contient désormais le statut détaillé.
-             row.innerHTML = `<td><span class="legend-color" style="background-color:${color};"></span><i>${species.name}</i></td><td>${species.label}</td>`;
+             
+             // *** MODIFICATION : Gère l'affichage du tableau de statuts. ***
+             const statusCellContent = Array.isArray(species.label) 
+                 ? species.label.join('<br>') 
+                 : species.label;
+             
+             row.innerHTML = `<td><span class="legend-color" style="background-color:${color};"></span><i>${species.name}</i></td><td>${statusCellContent}</td>`;
              row.addEventListener('click', () => {
                  if (speciesLayers.has(species.name)) {
                      const bounds = speciesLayers.get(species.name).getBounds();
@@ -112,8 +116,6 @@ document.addEventListener('DOMContentLoaded', () => {
              });
          });
          const table = document.createElement('table');
-         // *** MODIFICATION - Ligne 113 ***
-         // Mise à jour de l'en-tête du tableau pour correspondre à la nouvelle structure.
          table.innerHTML = `<thead><tr><th>Nom scientifique</th><th>Statut de patrimonialité</th></tr></thead>`;
          table.appendChild(tableBody);
          resultsContainer.appendChild(table);
@@ -127,7 +129,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
              setStatus("Étape 1/2: Inventaire de la flore locale via GBIF...", true);
              const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
-             const gbifResp = await fetch(`https://api.gbif.org/v1/occurrence/search?limit=500&geometry=${encodeURIComponent(wkt)}&kingdomKey=6`);
+             const gbifResp = await fetch(`https://api.gbif.org/v1/occurrence/search?limit=1000&geometry=${encodeURIComponent(wkt)}&kingdomKey=6`);
              if (!gbifResp.ok) throw new Error("L'API GBIF est indisponible.");
              const occurrenceData = await gbifResp.json();
              if (occurrenceData.results.length === 0) throw new Error("Aucune occurrence de plante trouvée à proximité.");
