@@ -3,27 +3,85 @@ const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args
 const fs = require('fs');
 const path = require('path');
 
+// --- 1. Clé API intégrée directement dans le script (selon la demande) ---
+const GEMINI_API_KEY = "AIzaSyDDv4amCchpTXGqz6FGuY8mxPClkw-uwMs";
+
+// --- 2. LECTURE ET PARSING DES DONNÉES DE STATUT ---
 const csvPath = path.join(__dirname, 'BDCstatut.csv');
 const statusDataRaw = fs.readFileSync(csvPath, 'utf8');
 
+// Mapping des noms administratifs vers les codes officiels (Départements & Régions)
+// Cette table est cruciale pour fiabiliser la correspondance.
+const ADMIN_NAME_TO_CODE_MAP = {
+    "Ain": "01", "Aisne": "02", "Allier": "03", "Alpes-de-Haute-Provence": "04",
+    "Hautes-Alpes": "05", "Alpes-Maritimes": "06", "Ardèche": "07", "Ardennes": "08",
+    "Ariège": "09", "Aube": "10", "Aude": "11", "Aveyron": "12", "Bouches-du-Rhône": "13",
+    "Calvados": "14", "Cantal": "15", "Charente": "16", "Charente-Maritime": "17",
+    "Cher": "18", "Corrèze": "19", "Corse-du-Sud": "2A", "Haute-Corse": "2B",
+    "Côte-d'Or": "21", "Côtes-d'Armor": "22", "Creuse": "23", "Dordogne": "24",
+    "Doubs": "25", "Drôme": "26", "Eure": "27", "Eure-et-Loir": "28", "Finistère": "29",
+    "Gard": "30", "Haute-Garonne": "31", "Gers": "32", "Gironde": "33", "Hérault": "34",
+    "Ille-et-Vilaine": "35", "Indre": "36", "Indre-et-Loire": "37", "Isère": "38",
+    "Jura": "39", "Landes": "40", "Loir-et-Cher": "41", "Loire": "42", "Haute-Loire": "43",
+    "Loire-Atlantique": "44", "Loiret": "45", "Lot": "46", "Lot-et-Garonne": "47",
+    "Lozère": "48", "Maine-et-Loire": "49", "Manche": "50", "Marne": "51", "Haute-Marne": "52",
+    "Mayenne": "53", "Meurthe-et-Moselle": "54", "Meuse": "55", "Morbihan": "56",
+    "Moselle": "57", "Nièvre": "58", "Nord": "59", "Oise": "60", "Orne": "61",
+    "Pas-de-Calais": "62", "Puy-de-Dôme": "63", "Pyrénées-Atlantiques": "64",
+    "Hautes-Pyrénées": "65", "Pyrénées-Orientales": "66", "Bas-Rhin": "67",
+    "Haut-Rhin": "68", "Rhône": "69", "Haute-Saône": "70", "Saône-et-Loire": "71",
+    "Sarthe": "72", "Savoie": "73", "Haute-Savoie": "74", "Paris": "75",
+    "Seine-Maritime": "76", "Seine-et-Marne": "77", "Yvelines": "78", "Deux-Sèvres": "79",
+    "Somme": "80", "Tarn": "81", "Tarn-et-Garonne": "82", "Var": "83", "Vaucluse": "84",
+    "Vendée": "85", "Vienne": "86", "Haute-Vienne": "87", "Vosges": "88", "Yonne": "89",
+    "Territoire de Belfort": "90", "Essonne": "91", "Hauts-de-Seine": "92",
+    "Seine-Saint-Denis": "93", "Val-de-Marne": "94", "Val-d'Oise": "95",
+    // Régions (nouvelles et anciennes pour la correspondance)
+    "Auvergne-Rhône-Alpes": "84", "Rhône-Alpes": "84", "Auvergne": "84",
+    "Bourgogne-Franche-Comté": "27", "Bourgogne": "27", "Franche-Comté": "27",
+    "Bretagne": "53",
+    "Centre-Val de Loire": "24", "Centre": "24",
+    "Corse": "94",
+    "Grand Est": "44", "Alsace": "44", "Champagne-Ardenne": "44", "Lorraine": "44",
+    "Hauts-de-France": "32", "Nord-Pas-de-Calais": "32", "Picardie": "32",
+    "Île-de-France": "11",
+    "Normandie": "28", "Basse-Normandie": "28", "Haute-Normandie": "28",
+    "Nouvelle-Aquitaine": "75", "Aquitaine": "75", "Limousin": "75", "Poitou-Charentes": "75",
+    "Occitanie": "76", "Languedoc-Roussillon": "76", "Midi-Pyrénées": "76",
+    "Pays de la Loire": "52",
+    "Provence-Alpes-Côte d'Azur": "93",
+    // Outre-mer
+    "Guadeloupe": "01", "Martinique": "02", "Guyane": "03", "La Réunion": "04", "Mayotte": "06",
+};
+
+/**
+ * Parse les données brutes du CSV.
+ * @returns {Array<Object>} Un tableau d'objets représentant les lignes du CSV.
+ */
 const parseStatusData = () => {
     const lines = statusDataRaw.trim().split(/\r?\n/);
     const header = lines.shift().split(';').map(h => h.trim().replace(/"/g, ''));
     const required = { adm: 'LB_ADM_TR', nom: 'LB_NOM', code: 'CODE_STATUT', type: 'LB_TYPE_STATUT', label: 'LABEL_STATUT' };
     const indices = Object.keys(required).reduce((acc, key) => ({...acc, [key]: header.indexOf(required[key]) }), {});
-    if (Object.values(indices).some(i => i === -1)) throw new Error(`CSV Invalide`);
+
+    if (Object.values(indices).some(i => i === -1)) {
+        console.error("Colonnes CSV manquantes:", required, header);
+        throw new Error(`Le format du fichier CSV BDCstatut.csv est invalide.`);
+    }
     
     return lines.map(line => {
         const cols = line.split(';');
         const rowData = {};
-        for (const key in indices) rowData[key] = cols[indices[key]]?.trim().replace(/"/g, '');
+        for (const key in indices) {
+            rowData[key] = cols[indices[key]]?.trim().replace(/"/g, '') || '';
+        }
         return rowData;
-    }).filter(row => row.LB_NOM && row.LB_TYPE_STATUT);
+    }).filter(row => row.nom && row.type);
 };
 
 const statusData = parseStatusData();
-const OLD_REGION_MAP = { 'Alsace': 'Grand Est', 'Aquitaine': 'Nouvelle-Aquitaine', 'Auvergne': 'Auvergne-Rhône-Alpes', 'Basse-Normandie': 'Normandie', 'Bourgogne': 'Bourgogne-Franche-Comté', 'Centre': 'Centre-Val de Loire', 'Champagne-Ardenne': 'Grand Est', 'Franche-Comté': 'Bourgogne-Franche-Comté', 'Haute-Normandie': 'Normandie', 'Limousin': 'Nouvelle-Aquitaine', 'Lorraine': 'Grand Est', 'Languedoc-Roussillon': 'Occitanie', 'Midi-Pyrénées': 'Occitanie', 'Nord-Pas-de-Calais': 'Hauts-de-France', 'Poitou-Charentes': 'Nouvelle-Aquitaine', 'Rhône-Alpes': 'Auvergne-Rhône-Alpes' };
 
+// --- HANDLER PRINCIPAL DE LA FONCTION SERVERLESS ---
 exports.handler = async function(event) {
     if (event.httpMethod !== 'POST') {
         return { statusCode: 405, body: 'Method Not Allowed' };
@@ -31,38 +89,61 @@ exports.handler = async function(event) {
 
     try {
         const { discoveredOccurrences, coords } = JSON.parse(event.body);
-        const uniqueSpeciesNames = [...new Set(discoveredOccurrences.map(o => o.species))];
+        if (!discoveredOccurrences || !coords) {
+             return { statusCode: 400, body: 'Données d\'entrée invalides (occurrences ou coordonnées manquantes).' };
+        }
 
-        const geoResp = await fetch(`https://geo.api.gouv.fr/communes?lat=${coords.latitude}&lon=${coords.longitude}&fields=departement,region`);
-        const [info] = await geoResp.json();
-        const regionName = OLD_REGION_MAP[info.region.nom] || info.region.nom;
-        const departementName = info.departement.nom;
+        // --- 3. FIABILISATION : Récupération des CODES administratifs depuis l'API GOUV ---
+        const geoApiUrl = `https://geo.api.gouv.fr/communes?lat=${coords.latitude}&lon=${coords.longitude}&fields=departement,region`;
+        console.log(`Interrogation de l'API Geo: ${geoApiUrl}`);
+        const geoResp = await fetch(geoApiUrl);
+        if (!geoResp.ok) throw new Error("Le service de géolocalisation administrative (geo.api.gouv.fr) est indisponible.");
+        
+        const geoData = await geoResp.json();
+        if (geoData.length === 0) throw new Error(`Aucune information administrative trouvée pour les coordonnées ${coords.latitude},${coords.longitude}`);
+        
+        const { departement, region } = geoData[0];
+        const departmentCode = departement.code;
+        const regionCode = region.code;
+        console.log(`Localisation identifiée: Département ${departement.nom} (code: ${departmentCode}), Région ${region.nom} (code: ${regionCode})`);
 
+        // --- 4. NOUVELLE LOGIQUE DE FILTRAGE BASÉE SUR LES CODES ---
         const threatCodes = new Set(['NT', 'VU', 'EN', 'CR']);
         const localRules = new Map();
+
         statusData.forEach(row => {
-            const adm = OLD_REGION_MAP[row.LB_ADM_TR] || row.LB_ADM_TR;
-            if (adm === regionName || adm === departementName) {
-                const type = (row.LB_TYPE_STATUT || '').toLowerCase();
-                if ((type.includes('liste rouge') && threatCodes.has(row.CODE_STATUT)) || type.includes('protection') || type.includes('directive')) {
-                    localRules.set(row.LB_NOM, row.LABEL_STATUT);
+            const adminName = row.adm;
+            const adminCode = ADMIN_NAME_TO_CODE_MAP[adminName];
+            
+            // Comparaison des CODES et non plus des NOMS
+            if (adminCode === departmentCode || adminCode === regionCode) {
+                const type = row.type.toLowerCase();
+                if ((type.includes('liste rouge') && threatCodes.has(row.code)) || type.includes('protection') || type.includes('directive')) {
+                    // Utiliser le nom de l'espèce comme clé pour éviter les doublons de statuts
+                    if (!localRules.has(row.nom)) {
+                        localRules.set(row.nom, row.label);
+                    }
                 }
             }
         });
+        console.log(`${localRules.size} règles de patrimonialité pertinentes trouvées pour la zone.`);
 
-        const prompt = `Tu es un expert botaniste pour la région française '${regionName}'. Ta mission est d'analyser une liste d'espèces observées sur le terrain et de déterminer lesquelles sont patrimoniales en te basant sur un extrait de la réglementation locale.
+        // --- 5. APPEL À L'API GEMINI ---
+        const uniqueSpeciesNames = [...new Set(discoveredOccurrences.map(o => o.species).filter(Boolean))];
+        if (uniqueSpeciesNames.length === 0) {
+            console.log("Aucun nom d'espèce valide à analyser.");
+            return { statusCode: 200, body: JSON.stringify({}) };
+        }
+
+        const prompt = `Tu es un expert botaniste pour la zone administrative française (département ${departmentCode}, région ${regionCode}). Ta mission est d'analyser une liste d'espèces observées et de déterminer lesquelles sont patrimoniales en te basant sur un extrait de la réglementation locale.
 
 Règles de patrimonialité pour la zone (extrait du référentiel BDCstatut) :
-${Array.from(localRules.entries()).map(([name, status]) => `- ${name}: ${status}`).join('\n')}
+${localRules.size > 0 ? Array.from(localRules.entries()).map(([name, status]) => `- ${name}: ${status}`).join('\n') : "Aucune règle de protection ou de menace spécifique n'a été trouvée pour cette zone précise dans notre extrait."}
 
 Liste des espèces observées sur le terrain (via GBIF) :
 ${uniqueSpeciesNames.join(', ')}
 
-Tâche : Compare la liste des espèces observées avec les règles de patrimonialité. Prends en compte les variations taxonomiques (ex: un nom avec ou sans l'auteur comme 'L.' doit correspondre). Retourne UNIQUEMENT un objet JSON valide contenant les espèces de la liste observée qui sont patrimoniales. Le format doit être: { "Nom de l'espèce": "Statut de patrimonialité" }. Si aucune espèce ne correspond, retourne un objet JSON vide {}.`;
-
-        // Clé API Gemini directement intégrée dans le code.
-        const GEMINI_API_KEY = "AIzaSyDDv4amCchpTXGqz6FGuY8mxPClkw-uwMs";
-        if (!GEMINI_API_KEY) throw new Error("La clé d'API Gemini n'est pas configurée.");
+Tâche : Compare la liste des espèces observées avec les règles de patrimonialité. Prends en compte les variations taxonomiques (ex: un nom avec ou sans l'auteur comme 'L.' doit correspondre). Retourne UNIQUEMENT un objet JSON valide contenant les espèces de la liste observée qui sont patrimoniales. Le format doit être: { "Nom de l'espèce": "Statut de patrimonialité" }. Si aucune espèce ne correspond ou si aucune règle n'est fournie, retourne un objet JSON vide {}.`;
         
         const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
         
@@ -75,20 +156,36 @@ Tâche : Compare la liste des espèces observées avec les règles de patrimonia
         if (!geminiResp.ok) {
             const errorBody = await geminiResp.text();
             console.error("Erreur de l'API Gemini:", errorBody);
-            throw new Error('Erreur de l\'API Gemini.');
+            throw new Error(`L'API d'analyse a retourné une erreur: ${geminiResp.statusText}`);
         }
         
         const geminiData = await geminiResp.json();
-        const jsonString = geminiData.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
-        const patrimonialMap = JSON.parse(jsonString);
+
+        // Extraction robuste de la réponse JSON
+        let patrimonialMap = {};
+        if (geminiData.candidates && geminiData.candidates[0].content && geminiData.candidates[0].content.parts[0]) {
+             const jsonString = geminiData.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
+             try {
+                patrimonialMap = JSON.parse(jsonString);
+             } catch (parseError) {
+                console.error("Erreur de parsing de la réponse JSON de Gemini:", parseError, "Réponse brute:", jsonString);
+                throw new Error("L'API d'analyse a retourné une réponse mal formée.");
+             }
+        } else {
+            console.warn("Réponse de Gemini inattendue ou vide:", JSON.stringify(geminiData, null, 2));
+        }
 
         return {
             statusCode: 200,
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(patrimonialMap)
         };
 
     } catch (error) {
         console.error("Erreur dans la fonction analyze-patrimonial-status:", error);
-        return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
+        return { 
+            statusCode: 500, 
+            body: JSON.stringify({ error: error.message }) 
+        };
     }
 };
