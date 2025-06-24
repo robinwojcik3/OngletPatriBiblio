@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
      let map = null;
      let speciesLayers = new Map();
-     const SEARCH_RADIUS_KM = 3; 
+     const SEARCH_RADIUS_KM = 2; // *** MODIFICATION : Rayon de recherche changé de 3 à 2 km. ***
      const SPECIES_COLORS = ['#E6194B', '#3CB44B', '#FFE119', '#4363D8', '#F58231', '#911EB4', '#46F0F0', '#F032E6', '#BCF60C', '#FABEBE', '#800000', '#AA6E28', '#000075', '#A9A9A9'];
      
      const setStatus = (message, isLoading = false) => {
@@ -62,7 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
      const initializeMap = (coords) => {
          if (map) map.remove();
          mapContainer.style.display = 'block';
-         map = L.map(mapContainer).setView([coords.latitude, coords.longitude], 12);
+         map = L.map(mapContainer).setView([coords.latitude, coords.longitude], 13); // Zoom légèrement augmenté pour un rayon plus petit
          L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: 'Map data: © OpenStreetMap contributors' }).addTo(map);
          L.circle([coords.latitude, coords.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
      };
@@ -101,12 +101,7 @@ document.addEventListener('DOMContentLoaded', () => {
              speciesLayers.set(species.name, layerGroup);
 
              const row = tableBody.insertRow();
-             
-             // *** MODIFICATION : Gère l'affichage du tableau de statuts. ***
-             const statusCellContent = Array.isArray(species.label) 
-                 ? species.label.join('<br>') 
-                 : species.label;
-             
+             const statusCellContent = Array.isArray(species.label) ? species.label.join('<br>') : species.label;
              row.innerHTML = `<td><span class="legend-color" style="background-color:${color};"></span><i>${species.name}</i></td><td>${statusCellContent}</td>`;
              row.addEventListener('click', () => {
                  if (speciesLayers.has(species.name)) {
@@ -127,17 +122,42 @@ document.addEventListener('DOMContentLoaded', () => {
              mapContainer.style.display = 'none';
              initializeMap(coords);
 
+             // --- Logique de pagination pour GBIF ---
              setStatus("Étape 1/2: Inventaire de la flore locale via GBIF...", true);
+             
              const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
-             const gbifResp = await fetch(`https://api.gbif.org/v1/occurrence/search?limit=1000&geometry=${encodeURIComponent(wkt)}&kingdomKey=6`);
-             if (!gbifResp.ok) throw new Error("L'API GBIF est indisponible.");
-             const occurrenceData = await gbifResp.json();
-             if (occurrenceData.results.length === 0) throw new Error("Aucune occurrence de plante trouvée à proximité.");
+             let allOccurrences = [];
+             const maxPages = 6; // *** MODIFICATION : Nombre de pages augmenté de 3 à 6. ***
+             const limit = 1000;
+
+             for (let page = 0; page < maxPages; page++) {
+                 const offset = page * limit;
+                 setStatus(`Étape 1/2: Inventaire de la flore locale via GBIF... (Page ${page + 1}/${maxPages})`, true);
+                 
+                 const gbifUrl = `https://api.gbif.org/v1/occurrence/search?limit=${limit}&offset=${offset}&geometry=${encodeURIComponent(wkt)}&kingdomKey=6`;
+                 const gbifResp = await fetch(gbifUrl);
+                 if (!gbifResp.ok) throw new Error("L'API GBIF est indisponible.");
+                 
+                 const pageData = await gbifResp.json();
+                 if (pageData.results && pageData.results.length > 0) {
+                     allOccurrences = allOccurrences.concat(pageData.results);
+                 }
+                 
+                 if (pageData.endOfRecords) {
+                     break; 
+                 }
+             }
+             
+             console.log(`Collecte terminée. ${allOccurrences.length} occurrences totales récupérées depuis GBIF.`);
+
+             if (allOccurrences.length === 0) {
+                 throw new Error("Aucune occurrence de plante trouvée à proximité.");
+             }
              
              setStatus("Étape 2/2: Qualification patrimoniale par l'Analyste Augmenté...", true);
              const analysisResp = await fetch('/.netlify/functions/analyze-patrimonial-status', {
                  method: 'POST',
-                 body: JSON.stringify({ discoveredOccurrences: occurrenceData.results, coords })
+                 body: JSON.stringify({ discoveredOccurrences: allOccurrences, coords })
              });
              if (!analysisResp.ok) {
                  const errBody = await analysisResp.text();
@@ -146,7 +166,7 @@ document.addEventListener('DOMContentLoaded', () => {
              const patrimonialMap = await analysisResp.json();
              
              setStatus(null);
-             displayResults(occurrenceData.results, patrimonialMap);
+             displayResults(allOccurrences, patrimonialMap);
 
          } catch (error) {
              console.error("Erreur durant l'analyse:", error);
