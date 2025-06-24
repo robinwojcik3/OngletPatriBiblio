@@ -10,8 +10,10 @@ const GEMINI_API_KEY = "AIzaSyDDv4amCchpTXGqz6FGuY8mxPClkw-uwMs";
 const csvPath = path.join(__dirname, 'BDCstatut.csv');
 const statusDataRaw = fs.readFileSync(csvPath, 'utf8');
 
-// --- NOUVELLE STRUCTURE : Mapping des anciennes régions à leurs départements ---
-// Cette structure est essentielle pour appliquer les statuts des anciennes régions uniquement à leur territoire d'origine.
+// --- 3. STRUCTURES DE DONNÉES POUR LA CORRESPONDANCE ADMINISTRATIVE ---
+
+// Structure A : Mapping des anciennes régions à leurs départements constitutifs.
+// Essentielle pour appliquer les statuts des anciennes régions à leur territoire d'origine uniquement.
 const OLD_REGIONS_TO_DEPARTMENTS = {
     'Alsace': ['67', '68'],
     'Aquitaine': ['24', '33', '40', '47', '64'],
@@ -31,8 +33,10 @@ const OLD_REGIONS_TO_DEPARTMENTS = {
     'Rhône-Alpes': ['01', '07', '26', '38', '42', '69', '73', '74']
 };
 
-// Mapping des noms administratifs vers les codes officiels (Départements & Régions)
+// Structure B : Mapping de tous les noms administratifs connus du CSV vers un code officiel.
+// Sert de traducteur universel pour standardiser les données.
 const ADMIN_NAME_TO_CODE_MAP = {
+    "France": "FR", // Ajout d'un code pour le niveau national
     "Ain": "01", "Aisne": "02", "Allier": "03", "Alpes-de-Haute-Provence": "04",
     "Hautes-Alpes": "05", "Alpes-Maritimes": "06", "Ardèche": "07", "Ardennes": "08",
     "Ariège": "09", "Aube": "10", "Aude": "11", "Aveyron": "12", "Bouches-du-Rhône": "13",
@@ -56,13 +60,11 @@ const ADMIN_NAME_TO_CODE_MAP = {
     "Vendée": "85", "Vienne": "86", "Haute-Vienne": "87", "Vosges": "88", "Yonne": "89",
     "Territoire de Belfort": "90", "Essonne": "91", "Hauts-de-Seine": "92",
     "Seine-Saint-Denis": "93", "Val-de-Marne": "94", "Val-d'Oise": "95",
-    // Régions
     "Auvergne-Rhône-Alpes": "84", "Bourgogne-Franche-Comté": "27", "Bretagne": "53",
     "Centre-Val de Loire": "24", "Corse": "94", "Grand Est": "44",
     "Hauts-de-France": "32", "Île-de-France": "11", "Normandie": "28",
     "Nouvelle-Aquitaine": "75", "Occitanie": "76", "Pays de la Loire": "52",
     "Provence-Alpes-Côte d'Azur": "93",
-    // Outre-mer
     "Guadeloupe": "01", "Martinique": "02", "Guyane": "03", "La Réunion": "04", "Mayotte": "06",
 };
 
@@ -90,67 +92,76 @@ const parseStatusData = () => {
 const statusData = parseStatusData();
 
 exports.handler = async function(event) {
-    if (event.httpMethod !== 'POST') {
-        return { statusCode: 405, body: 'Method Not Allowed' };
-    }
+    if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
 
     try {
         const { discoveredOccurrences, coords } = JSON.parse(event.body);
-        if (!discoveredOccurrences || !coords) {
-             return { statusCode: 400, body: 'Données d\'entrée invalides (occurrences ou coordonnées manquantes).' };
-        }
+        if (!discoveredOccurrences || !coords) return { statusCode: 400, body: 'Données d\'entrée invalides.' };
 
         const geoApiUrl = `https://geo.api.gouv.fr/communes?lat=${coords.latitude}&lon=${coords.longitude}&fields=departement,region`;
         const geoResp = await fetch(geoApiUrl);
-        if (!geoResp.ok) throw new Error("Le service de géolocalisation administrative (geo.api.gouv.fr) est indisponible.");
+        if (!geoResp.ok) throw new Error("Service de géolocalisation administrative indisponible.");
         
         const geoData = await geoResp.json();
-        if (geoData.length === 0) throw new Error(`Aucune information administrative trouvée pour les coordonnées ${coords.latitude},${coords.longitude}`);
+        if (geoData.length === 0) throw new Error(`Aucune information administrative trouvée pour les coordonnées.`);
         
         const { departement, region } = geoData[0];
         const departmentCode = departement.code;
-        const regionCode = region.code;
-        console.log(`Localisation identifiée: Département ${departement.nom} (code: ${departmentCode}), Région ${region.nom} (code: ${regionCode})`);
+        const newRegionCode = region.code;
+        console.log(`Localisation: Dpt ${departmentCode} (${departement.nom}), Région ${newRegionCode} (${region.nom})`);
 
-        // --- LOGIQUE DE FILTRAGE CORRIGÉE ---
         const threatCodes = new Set(['NT', 'VU', 'EN', 'CR']);
         const localRules = new Map();
 
+        // --- LOGIQUE DE FILTRAGE ADMINISTRATIVE RENFORCÉE ---
         statusData.forEach(row => {
-            const adminName = row.adm; // Le nom de la zone administrative du CSV (ex: "Auvergne")
+            const type = row.type.toLowerCase();
+            const adminName = row.adm;
+
+            // Étape 1 : Vérifier si le statut est patrimonial
+            const isRedList = type.includes('liste rouge') && threatCodes.has(row.code);
+            const isProtection = type.includes('protection');
+            const isDirective = type.includes('directive');
+            if (!isRedList && !isProtection && !isDirective) {
+                return; // Statut non pertinent, on passe au suivant.
+            }
+
             let ruleApplies = false;
 
-            // 1. Contrôle prioritaire : s'agit-il d'un statut d'une ancienne région ?
-            if (OLD_REGIONS_TO_DEPARTMENTS[adminName]) {
-                // Si oui, la règle s'applique UNIQUEMENT si le département actuel est dans la liste des départements de cette ancienne région.
-                if (OLD_REGIONS_TO_DEPARTMENTS[adminName].includes(departmentCode)) {
-                    ruleApplies = true;
-                }
-            } else {
-                // 2. Sinon, on procède à la vérification par code (département ou nouvelle région).
-                const adminCode = ADMIN_NAME_TO_CODE_MAP[adminName];
-                if (adminCode === departmentCode || adminCode === regionCode) {
-                    ruleApplies = true;
-                }
+            // Étape 2 : Vérifier la portée géographique du statut
+            // Cas 1 : Statuts à portée NATIONALE (prioritaire)
+            if (ADMIN_NAME_TO_CODE_MAP[adminName] === 'FR' || type.includes('nationale')) {
+                ruleApplies = true;
             }
-            
-            if (ruleApplies) {
-                const type = row.type.toLowerCase();
-                if ((type.includes('liste rouge') && threatCodes.has(row.code)) || type.includes('protection') || type.includes('directive')) {
-                    if (!localRules.has(row.nom)) {
-                        localRules.set(row.nom, row.label);
+            // Cas 2 : Statuts à portée LOCALE (non-nationaux)
+            else {
+                // Logique pour statuts de protection, directives, et listes rouges locales
+                if (OLD_REGIONS_TO_DEPARTMENTS[adminName]) { // Statut d'une ancienne région
+                    if (OLD_REGIONS_TO_DEPARTMENTS[adminName].includes(departmentCode)) {
+                        ruleApplies = true;
+                    }
+                } else { // Statut départemental ou de nouvelle région
+                    const adminCode = ADMIN_NAME_TO_CODE_MAP[adminName];
+                    if (adminCode === departmentCode || adminCode === newRegionCode) {
+                        ruleApplies = true;
                     }
                 }
             }
+            
+            // Étape 3 : Ajouter la règle si elle s'applique
+            if (ruleApplies) {
+                if (!localRules.has(row.nom)) {
+                    localRules.set(row.nom, row.label);
+                }
+            }
         });
+
         console.log(`${localRules.size} règles de patrimonialité pertinentes trouvées pour la zone.`);
 
         const uniqueSpeciesNames = [...new Set(discoveredOccurrences.map(o => o.species).filter(Boolean))];
-        if (uniqueSpeciesNames.length === 0) {
-            return { statusCode: 200, body: JSON.stringify({}) };
-        }
+        if (uniqueSpeciesNames.length === 0) return { statusCode: 200, body: JSON.stringify({}) };
 
-        const prompt = `Tu es un expert botaniste pour la zone administrative française (département ${departmentCode}, région ${regionCode}). Ta mission est d'analyser une liste d'espèces observées et de déterminer lesquelles sont patrimoniales en te basant sur un extrait de la réglementation locale.
+        const prompt = `Tu es un expert botaniste pour la zone administrative française (département ${departmentCode}, région ${newRegionCode}). Ta mission est d'analyser une liste d'espèces observées et de déterminer lesquelles sont patrimoniales en te basant sur un extrait de la réglementation locale.
 
 Règles de patrimonialité pour la zone (extrait du référentiel BDCstatut) :
 ${localRules.size > 0 ? Array.from(localRules.entries()).map(([name, status]) => `- ${name}: ${status}`).join('\n') : "Aucune règle de protection ou de menace spécifique n'a été trouvée pour cette zone précise dans notre extrait."}
