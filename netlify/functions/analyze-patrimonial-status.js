@@ -2,16 +2,15 @@
 const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
 const fs = require('fs');
 const path = require('path');
+const readline = require('readline');
 
 // --- 1. Clé API intégrée directement dans le script (selon la demande) ---
 const GEMINI_API_KEY = "AIzaSyDDv4amCchpTXGqz6FGuY8mxPClkw-uwMs";
 
-// --- 2. LECTURE ET PARSING DES DONNÉES DE STATUT ---
+// --- 2. CHEMIN VERS LE FICHIER CSV ---
 const csvPath = path.join(__dirname, 'BDCstatut.csv');
-const statusDataRaw = fs.readFileSync(csvPath, 'utf8');
 
-// --- 3. STRUCTURES DE DONNÉES ET CONSTANTES DE FILTRAGE ---
-
+// --- 3. CONSTANTES DE FILTRAGE ET DE GÉOGRAPHIE ---
 const OLD_REGIONS_TO_DEPARTMENTS = {
     'Alsace': ['67', '68'], 'Aquitaine': ['24', '33', '40', '47', '64'], 'Auvergne': ['03', '15', '43', '63'],
     'Basse-Normandie': ['14', '50', '61'], 'Bourgogne': ['21', '58', '71', '89'], 'Champagne-Ardenne': ['08', '10', '51', '52'],
@@ -20,7 +19,6 @@ const OLD_REGIONS_TO_DEPARTMENTS = {
     'Nord-Pas-de-Calais': ['59', '62'], 'Picardie': ['02', '60', '80'], 'Poitou-Charentes': ['16', '17', '79', '86'],
     'Rhône-Alpes': ['01', '07', '26', '38', '42', '69', '73', '74']
 };
-
 const ADMIN_NAME_TO_CODE_MAP = {
     "France": "FR", "Ain": "01", "Aisne": "02", "Allier": "03", "Alpes-de-Haute-Provence": "04", "Hautes-Alpes": "05",
     "Alpes-Maritimes": "06", "Ardèche": "07", "Ardennes": "08", "Ariège": "09", "Aube": "10", "Aude": "11", "Aveyron": "12",
@@ -42,40 +40,59 @@ const ADMIN_NAME_TO_CODE_MAP = {
     "Nouvelle-Aquitaine": "75", "Occitanie": "76", "Pays de la Loire": "52", "Provence-Alpes-Côte d'Azur": "93",
     "Guadeloupe": "01", "Martinique": "02", "Guyane": "03", "La Réunion": "04", "Mayotte": "06",
 };
-
-const nonPatrimonialLabels = new Set([
-    "Liste des espèces végétales sauvages pouvant faire l'objet d'une réglementation préfectorale dans les départements d'outre-mer : Article 1"
-]);
-
-// *** NOUVEAU *** : Ajout des codes de Liste Rouge à exclure.
+const nonPatrimonialLabels = new Set(["Liste des espèces végétales sauvages pouvant faire l'objet d'une réglementation préfectorale dans les départements d'outre-mer : Article 1"]);
 const nonPatrimonialRedlistCodes = new Set(['LC', 'DD', 'NA', 'NE']);
 
-const indexRulesByTaxon = () => {
-    const lines = statusDataRaw.trim().split(/\r?\n/);
-    const header = lines.shift().split(';').map(h => h.trim().replace(/"/g, ''));
-    const indices = { 
-        adm: header.indexOf('LB_ADM_TR'), nom: header.indexOf('LB_NOM'), code: header.indexOf('CODE_STATUT'), 
-        type: header.indexOf('LB_TYPE_STATUT'), label: header.indexOf('LABEL_STATUT') 
-    };
-    if (Object.values(indices).some(i => i === -1)) { throw new Error(`Le format du fichier CSV BDCstatut.csv est invalide. Colonnes manquantes.`); }
-    
-    const rulesIndex = new Map();
-    lines.forEach(line => {
-        const cols = line.split(';');
-        const rowData = {
-            adm: cols[indices.adm]?.trim().replace(/"/g, '') || '', nom: cols[indices.nom]?.trim().replace(/"/g, '') || '',
-            code: cols[indices.code]?.trim().replace(/"/g, '') || '', type: cols[indices.type]?.trim().replace(/"/g, '') || '',
-            label: cols[indices.label]?.trim().replace(/"/g, '') || ''
-        };
-        if (rowData.nom && rowData.type) {
-            if (!rulesIndex.has(rowData.nom)) { rulesIndex.set(rowData.nom, []); }
-            rulesIndex.get(rowData.nom).push(rowData);
-        }
-    });
-    return rulesIndex;
-};
+/**
+ * @description Construit un index de règles "juste-à-temps" en lisant le CSV à la volée.
+ * @param {Set<string>} speciesInChunk - L'ensemble des noms d'espèces uniques du lot en cours.
+ * @returns {Promise<Map<string, Object[]>>} - Une promesse qui se résout avec le mini-index des règles pour les espèces concernées.
+ */
+const buildTargetedIndexForChunk = (speciesInChunk) => {
+    return new Promise((resolve, reject) => {
+        const rulesIndex = new Map();
+        const stream = fs.createReadStream(csvPath);
+        const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
 
-const rulesByTaxonIndex = indexRulesByTaxon();
+        let header = [];
+        let indices = {};
+        let isFirstLine = true;
+
+        rl.on('line', (line) => {
+            if (isFirstLine) {
+                header = line.split(';').map(h => h.trim().replace(/"/g, ''));
+                indices = { 
+                    adm: header.indexOf('LB_ADM_TR'), nom: header.indexOf('LB_NOM'), code: header.indexOf('CODE_STATUT'), 
+                    type: header.indexOf('LB_TYPE_STATUT'), label: header.indexOf('LABEL_STATUT') 
+                };
+                isFirstLine = false;
+                return;
+            }
+
+            const cols = line.split(';');
+            const speciesName = cols[indices.nom]?.trim().replace(/"/g, '') || '';
+
+            // C'est le cœur de l'optimisation : on ne traite que les lignes qui nous intéressent.
+            if (speciesInChunk.has(speciesName)) {
+                const rowData = {
+                    adm: cols[indices.adm]?.trim().replace(/"/g, '') || '', nom: speciesName,
+                    code: cols[indices.code]?.trim().replace(/"/g, '') || '', type: cols[indices.type]?.trim().replace(/"/g, '') || '',
+                    label: cols[indices.label]?.trim().replace(/"/g, '') || ''
+                };
+
+                if (rowData.nom && rowData.type) {
+                    if (!rulesIndex.has(rowData.nom)) {
+                        rulesIndex.set(rowData.nom, []);
+                    }
+                    rulesIndex.get(rowData.nom).push(rowData);
+                }
+            }
+        });
+
+        rl.on('close', () => resolve(rulesIndex));
+        rl.on('error', (err) => reject(err));
+    });
+};
 
 exports.handler = async function(event) {
     if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
@@ -83,19 +100,20 @@ exports.handler = async function(event) {
         const { discoveredOccurrences, coords } = JSON.parse(event.body);
         if (!discoveredOccurrences || !coords) return { statusCode: 400, body: 'Données d\'entrée invalides.' };
 
-        const geoApiUrl = `https://geo.api.gouv.fr/communes?lat=${coords.latitude}&lon=${coords.longitude}&fields=departement,region`;
-        const geoResp = await fetch(geoApiUrl);
-        if (!geoResp.ok) throw new Error("Service de géolocalisation administrative indisponible.");
-        const geoData = await geoResp.json();
-        if (geoData.length === 0) throw new Error(`Aucune information administrative trouvée pour les coordonnées.`);
-        const { departement, region } = geoData[0];
+        // 1. Identifier les espèces uniques pour le lot reçu.
+        const speciesInChunk = new Set(discoveredOccurrences.map(o => o.species).filter(Boolean));
+
+        // 2. Construire le mini-index "juste-à-temps"
+        const rulesByTaxonIndex = await buildTargetedIndexForChunk(speciesInChunk);
+        
+        // 3. Obtenir le contexte géographique.
+        const { departement, region } = (await (await fetch(`https://geo.api.gouv.fr/communes?lat=${coords.latitude}&lon=${coords.longitude}&fields=departement,region`)).json())[0];
         const departmentCode = departement.code;
         const newRegionCode = region.code;
 
-        const uniqueSpeciesNames = [...new Set(discoveredOccurrences.map(o => o.species).filter(Boolean))];
+        // 4. Appliquer les filtres géographiques et sémantiques sur le mini-index.
         const relevantRules = new Map();
-
-        for (const speciesName of uniqueSpeciesNames) {
+        for (const speciesName of speciesInChunk) {
             const rulesForThisTaxon = rulesByTaxonIndex.get(speciesName);
             if (rulesForThisTaxon) {
                 for (const row of rulesForThisTaxon) {
@@ -106,11 +124,7 @@ exports.handler = async function(event) {
                     else { const adminCode = ADMIN_NAME_TO_CODE_MAP[row.adm]; if (adminCode === departmentCode || adminCode === newRegionCode) { ruleApplies = true; } }
 
                     if (ruleApplies) {
-                        // --- Logique de filtrage des statuts non-patrimoniaux ---
-                        if (nonPatrimonialLabels.has(row.label)) { continue; }
-                        
-                        // *** NOUVEAU *** : Exclure "Déterminante ZNIEFF" et les codes LR non-patrimoniaux.
-                        if (type.includes('déterminante znieff')) { continue; }
+                        if (nonPatrimonialLabels.has(row.label) || type.includes('déterminante znieff')) { continue; }
                         const isRedList = type.includes('liste rouge');
                         if (isRedList && nonPatrimonialRedlistCodes.has(row.code)) { continue; }
 
@@ -124,42 +138,37 @@ exports.handler = async function(event) {
             }
         }
         
-        console.log(`${relevantRules.size} règles pertinentes trouvées après pré-filtrage.`);
         const patrimonialityRules = relevantRules.size > 0 ? Array.from(relevantRules.values()).map(rule => `- ${rule.species}: ${rule.status}`).join('\n') : "Aucune règle par correspondance directe.";
-
+        
+        // 5. Appeler l'IA avec un prompt léger et pertinent.
         const prompt = `Tu es un expert botaniste pour la zone administrative française (département ${departmentCode}, région ${newRegionCode}). Ta mission est d'analyser une liste d'espèces observées et de déterminer lesquelles sont patrimoniales.
 
 **Règles Impératives d'Analyse :**
-1.  **Précision Taxonomique :** Un statut s'applique UNIQUEMENT au taxon exact (espèce, sous-espèce, variété). Le statut d'une sous-espèce ou variété ne doit pas être appliqué à l'espèce parente.
-
-2.  **Définition de Patrimonialité :**
-    * Une espèce est patrimoniale si elle est protégée par la loi, ou listée comme menacée (NT, VU, EN, CR) sur une liste rouge pertinente.
-    * Le statut "Déterminante ZNIEFF" n'est **PAS** considéré comme un statut de patrimonialité directe pour cette analyse.
-    * Les statuts de Liste Rouge 'LC' (Préoccupation mineure), 'DD' (Données insuffisantes), 'NA' (Non applicable) et 'NE' (Non évalué) ne sont **PAS** des statuts patrimoniaux.
-
-3.  **Gestion des Conflits :** Si pour un même taxon, une règle 'LC' et une règle de menace coexistent pour la même liste, la règle 'LC' a priorité.
+1.  **Précision Taxonomique :** Un statut s'applique UNIQUEMENT au taxon exact. Le statut d'une sous-espèce/variété ne s'applique pas à l'espèce parente.
+2.  **Définition de Patrimonialité :** Une espèce est patrimoniale si elle est protégée par la loi, ou menacée (NT, VU, EN, CR). Les statuts ZNIEFF, LC, DD, NA, NE ne sont PAS patrimoniaux.
+3.  **Gestion des Conflits :** Si pour un taxon, une règle 'LC' et une règle de menace coexistent pour la même liste, 'LC' a priorité.
 
 **1. Analyse par Correspondance Directe :**
-Voici les règles pré-filtrées pour les espèces observées. Applique les règles ci-dessus à cette liste.
+Règles pré-filtrées pour les espèces observées :
 ${patrimonialityRules}
 
 **2. Analyse Complémentaire par Synonymie (si nécessaire) :**
-Pour les espèces observées qui n'ont pas de correspondance directe ci-dessus, utilise tes connaissances en taxonomie pour vérifier si elles sont des synonymes bien connus d'un taxon qui possède un statut patrimonial dans la flore française.
+Pour les espèces observées sans correspondance directe, utilise tes connaissances pour vérifier si elles sont des synonymes d'un taxon avec un statut patrimonial en France.
 
 **Tâche Finale :**
-Synthétise les résultats. Retourne UNIQUEMENT un objet JSON valide contenant toutes les espèces observées qui sont **effectivement patrimoniales**.
-Le format doit être : { "Nom de l'espèce observée": ["Statut 1", "Statut 2", ...] }.
-La valeur pour chaque espèce doit être un TABLEAU de chaînes de caractères. Si aucune espèce n'est patrimoniale, retourne un objet JSON vide {}.
+Synthétise les résultats. Retourne UNIQUEMENT un objet JSON valide des espèces **effectivement patrimoniales**.
+Format: { "Nom de l'espèce": ["Statut 1", "Statut 2", ...] }.
+La valeur est un TABLEAU. Si aucune espèce n'est patrimoniale, retourne {}.
 
-**Liste des espèces observées :**
-${uniqueSpeciesNames.join(', ')}`;
+**Liste des espèces observées pour ce lot :**
+${Array.from(speciesInChunk).join(', ')}`;
         
         const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
         const geminiResp = await fetch(geminiUrl, {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
         });
 
-        if (!geminiResp.ok) { const errorBody = await geminiResp.text(); console.error("Erreur de l'API Gemini:", errorBody); throw new Error(`L'API d'analyse a retourné une erreur: ${geminiResp.statusText}`); }
+        if (!geminiResp.ok) { const errBody = await geminiResp.text(); console.error("Erreur de l'API Gemini:", errBody); throw new Error(`L'API d'analyse a retourné une erreur: ${geminiResp.statusText}`); }
         
         const geminiData = await geminiResp.json();
         let patrimonialMap = {};
