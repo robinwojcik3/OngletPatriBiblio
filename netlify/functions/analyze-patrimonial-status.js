@@ -10,7 +10,7 @@ const GEMINI_API_KEY = "AIzaSyDDv4amCchpTXGqz6FGuY8mxPClkw-uwMs";
 const csvPath = path.join(__dirname, 'BDCstatut.csv');
 const statusDataRaw = fs.readFileSync(csvPath, 'utf8');
 
-// --- 3. STRUCTURES DE DONNÉES PRÉ-CALCULÉES (POUR L'OPTIMISATION) ---
+// --- 3. STRUCTURES DE DONNÉES ET CONSTANTES DE FILTRAGE ---
 
 const OLD_REGIONS_TO_DEPARTMENTS = {
     'Alsace': ['67', '68'], 'Aquitaine': ['24', '33', '40', '47', '64'], 'Auvergne': ['03', '15', '43', '63'],
@@ -46,6 +46,9 @@ const ADMIN_NAME_TO_CODE_MAP = {
 const nonPatrimonialLabels = new Set([
     "Liste des espèces végétales sauvages pouvant faire l'objet d'une réglementation préfectorale dans les départements d'outre-mer : Article 1"
 ]);
+
+// *** NOUVEAU *** : Ajout des codes de Liste Rouge à exclure.
+const nonPatrimonialRedlistCodes = new Set(['LC', 'DD', 'NA', 'NE']);
 
 const indexRulesByTaxon = () => {
     const lines = statusDataRaw.trim().split(/\r?\n/);
@@ -103,10 +106,16 @@ exports.handler = async function(event) {
                     else { const adminCode = ADMIN_NAME_TO_CODE_MAP[row.adm]; if (adminCode === departmentCode || adminCode === newRegionCode) { ruleApplies = true; } }
 
                     if (ruleApplies) {
+                        // --- Logique de filtrage des statuts non-patrimoniaux ---
                         if (nonPatrimonialLabels.has(row.label)) { continue; }
+                        
+                        // *** NOUVEAU *** : Exclure "Déterminante ZNIEFF" et les codes LR non-patrimoniaux.
+                        if (type.includes('déterminante znieff')) { continue; }
+                        const isRedList = type.includes('liste rouge');
+                        if (isRedList && nonPatrimonialRedlistCodes.has(row.code)) { continue; }
+
                         const ruleKey = `${row.nom}|${row.type}|${row.adm}`;
                         if (!relevantRules.has(ruleKey)) {
-                            const isRedList = type.includes('liste rouge');
                             const descriptiveStatus = isRedList ? `${row.type} (${row.code}) (${row.adm})` : row.label;
                             relevantRules.set(ruleKey, { species: row.nom, status: descriptiveStatus });
                         }
@@ -122,7 +131,12 @@ exports.handler = async function(event) {
 
 **Règles Impératives d'Analyse :**
 1.  **Précision Taxonomique :** Un statut s'applique UNIQUEMENT au taxon exact (espèce, sous-espèce, variété). Le statut d'une sous-espèce ou variété ne doit pas être appliqué à l'espèce parente.
-2.  **Définition de Patrimonialité :** Une espèce est patrimoniale si elle est protégée, réglementée, ou menacée (NT, VU, EN, CR) sur une liste rouge pertinente. Le statut 'LC' (Préoccupation mineure) n'est PAS patrimonial.
+
+2.  **Définition de Patrimonialité :**
+    * Une espèce est patrimoniale si elle est protégée par la loi, ou listée comme menacée (NT, VU, EN, CR) sur une liste rouge pertinente.
+    * Le statut "Déterminante ZNIEFF" n'est **PAS** considéré comme un statut de patrimonialité directe pour cette analyse.
+    * Les statuts de Liste Rouge 'LC' (Préoccupation mineure), 'DD' (Données insuffisantes), 'NA' (Non applicable) et 'NE' (Non évalué) ne sont **PAS** des statuts patrimoniaux.
+
 3.  **Gestion des Conflits :** Si pour un même taxon, une règle 'LC' et une règle de menace coexistent pour la même liste, la règle 'LC' a priorité.
 
 **1. Analyse par Correspondance Directe :**
@@ -133,9 +147,9 @@ ${patrimonialityRules}
 Pour les espèces observées qui n'ont pas de correspondance directe ci-dessus, utilise tes connaissances en taxonomie pour vérifier si elles sont des synonymes bien connus d'un taxon qui possède un statut patrimonial dans la flore française.
 
 **Tâche Finale :**
-Synthétise les résultats des deux analyses. Retourne UNIQUEMENT un objet JSON valide contenant toutes les espèces observées qui sont **effectivement patrimoniales**.
+Synthétise les résultats. Retourne UNIQUEMENT un objet JSON valide contenant toutes les espèces observées qui sont **effectivement patrimoniales**.
 Le format doit être : { "Nom de l'espèce observée": ["Statut 1", "Statut 2", ...] }.
-La valeur pour chaque espèce doit être un **TABLEAU de chaînes de caractères**, chaque chaîne représentant un statut patrimonial valide. Si une espèce n'a qu'un seul statut, retourne un tableau avec un seul élément. Si aucune espèce n'est patrimoniale après l'analyse complète, retourne un objet JSON vide {}.
+La valeur pour chaque espèce doit être un TABLEAU de chaînes de caractères. Si aucune espèce n'est patrimoniale, retourne un objet JSON vide {}.
 
 **Liste des espèces observées :**
 ${uniqueSpeciesNames.join(', ')}`;
