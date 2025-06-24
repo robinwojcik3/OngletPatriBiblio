@@ -1,5 +1,5 @@
 // /biblio-patri.js
-// Version finale avec indexation côté client pour une robustesse et une performance maximales.
+// Version finale avec contrôle de fonds de carte et gestion des points superposés.
 
 document.addEventListener('DOMContentLoaded', async () => {
     // --- 1. Injection des styles ---
@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     styleElement.textContent = pageStyles;
     document.head.appendChild(styleElement);
     
-    // --- 2. Déclaration des variables et constantes globales ---
+    // --- Déclaration des variables et constantes globales ---
     const statusDiv = document.getElementById('status');
     const resultsContainer = document.getElementById('results');
     const mapContainer = document.getElementById('map');
@@ -62,12 +62,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (message) statusDiv.innerHTML += `<p>${message}</p>`;
     };
     
-    // --- 3. FONCTION D'INDEXATION CÔTÉ CLIENT ---
     const indexRulesFromCSV = (csvText) => {
         const lines = csvText.trim().split(/\r?\n/);
         const header = lines.shift().split(';').map(h => h.trim().replace(/"/g, ''));
         const indices = { adm: header.indexOf('LB_ADM_TR'), nom: header.indexOf('LB_NOM'), code: header.indexOf('CODE_STATUT'), type: header.indexOf('LB_TYPE_STATUT'), label: header.indexOf('LABEL_STATUT') };
-        
         const index = new Map();
         lines.forEach(line => {
             const cols = line.split(';');
@@ -84,7 +82,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         return index;
     };
 
-    // --- 4. CHARGEMENT ET PRÉPARATION DES DONNÉES AU DÉMARRAGE ---
     const initializeApp = async () => {
         try {
             setStatus("Chargement du référentiel BDCstatut...", true);
@@ -100,15 +97,35 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
-    // --- 5. LOGIQUE D'APPLICATION ---
+    // --- MODIFICATION : Ajout de la gestion des fonds de carte ---
     const initializeMap = (coords) => {
         if (map) map.remove();
         mapContainer.style.display = 'block';
-        map = L.map(mapContainer).setView([coords.latitude, coords.longitude], 13);
-        L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { attribution: 'Map data: © OpenStreetMap contributors' }).addTo(map);
+
+        const topoMap = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+            attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)'
+        });
+
+        const satelliteMap = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles © Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+        });
+
+        map = L.map(mapContainer, {
+            center: [coords.latitude, coords.longitude],
+            zoom: 13,
+            layers: [topoMap] // Fond de carte par défaut
+        });
+
+        const baseMaps = {
+            "Topographique": topoMap,
+            "Satellite": satelliteMap
+        };
+
+        L.control.layers(baseMaps).addTo(map);
         L.circle([coords.latitude, coords.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
     };
    
+    // --- MODIFICATION : Refonte complète pour la gestion des points superposés ---
     const fetchAndDisplayAllPatrimonialOccurrences = async (patrimonialMap, wkt, initialOccurrences) => {
         const speciesNames = Object.keys(patrimonialMap);
         if (speciesNames.length === 0) return;
@@ -125,15 +142,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
 
+        let allDetailedOccurrences = [];
         for (const [index, speciesName] of speciesNames.entries()) {
             const taxonKey = taxonKeyMap.get(speciesName);
             if (!taxonKey) continue;
 
-            let allSpeciesOccurrences = [];
-            const maxPages = 10;
-            const limit = 1000;
-            let endOfRecords = false;
-
+            const maxPages = 10; const limit = 1000; let endOfRecords = false;
             for (let page = 0; page < maxPages && !endOfRecords; page++) {
                 const offset = page * limit;
                 const gbifUrl = `https://api.gbif.org/v1/occurrence/search?limit=${limit}&offset=${offset}&geometry=${encodeURIComponent(wkt)}&taxonKey=${taxonKey}`;
@@ -142,36 +156,69 @@ document.addEventListener('DOMContentLoaded', async () => {
                     if (!resp.ok) break;
                     const pageData = await resp.json();
                     if (pageData.results?.length > 0) {
-                        allSpeciesOccurrences = allSpeciesOccurrences.concat(pageData.results);
+                        pageData.results.forEach(occ => {
+                            // On enrichit l'occurrence avec le nom de l'espèce pour la suite
+                            if (occ.decimalLatitude && occ.decimalLongitude) {
+                                allDetailedOccurrences.push({ ...occ, speciesName });
+                            }
+                        });
                     }
                     endOfRecords = pageData.endOfRecords;
-                } catch (e) {
-                    console.error("Erreur durant la cartographie détaillée pour :", speciesName, e);
-                    break; 
-                }
-            }
-
-            if (allSpeciesOccurrences.length > 0) {
-                const color = SPECIES_COLORS[index % SPECIES_COLORS.length];
-                const icon = L.divIcon({ html: `<div style="background-color:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 3px #000;"></div>`, className:'custom-div-icon', iconSize:[16,16] });
-                const layerGroup = L.layerGroup();
-                allSpeciesOccurrences.forEach(occ => {
-                    if (occ.decimalLatitude && occ.decimalLongitude) {
-                       L.marker([occ.decimalLatitude, occ.decimalLongitude], { icon }).addTo(layerGroup).bindPopup(`<b><i>${speciesName}</i></b>`);
-                    }
-                });
-                layerGroup.addTo(map);
-                speciesLayers.set(speciesName, layerGroup);
+                } catch (e) { console.error("Erreur durant la cartographie détaillée pour :", speciesName, e); break; }
             }
         }
+        
+        // Grouper les occurrences par coordonnées
+        const occurrencesByCoord = new Map();
+        allDetailedOccurrences.forEach(occ => {
+            const coordKey = `${occ.decimalLatitude},${occ.decimalLongitude}`;
+            if (!occurrencesByCoord.has(coordKey)) {
+                occurrencesByCoord.set(coordKey, { lat: occ.decimalLatitude, lon: occ.decimalLongitude, species: new Set() });
+            }
+            occurrencesByCoord.get(coordKey).species.add(occ.speciesName);
+        });
+
+        // Dessiner les marqueurs groupés
+        const markersLayerGroup = L.layerGroup();
+        const speciesNameToIndex = new Map(speciesNames.map((name, i) => [name, i]));
+
+        occurrencesByCoord.forEach(pointData => {
+            const speciesList = Array.from(pointData.species);
+            let color;
+            let iconHtml;
+
+            if (speciesList.length > 1) {
+                // Couleur neutre pour les points multiples
+                color = '#757575'; 
+                iconHtml = `<div style="background-color:${color};width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 0 4px #000;display:flex;justify-content:center;align-items:center;color:white;font-size:9px;font-weight:bold;">${speciesList.length}</div>`;
+            } else {
+                const speciesName = speciesList[0];
+                const speciesIndex = speciesNameToIndex.get(speciesName) ?? 0;
+                color = SPECIES_COLORS[speciesIndex % SPECIES_COLORS.length];
+                iconHtml = `<div style="background-color:${color};width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 3px #000;"></div>`;
+            }
+
+            const icon = L.divIcon({ html: iconHtml, className:'custom-div-icon', iconSize:[16,16] });
+
+            let popupContent = '<b>Espèces patrimoniales :</b><ul>';
+            speciesList.forEach(name => {
+                popupContent += `<li><i>${name}</i></li>`;
+            });
+            popupContent += '</ul>';
+
+            L.marker([pointData.lat, pointData.lon], { icon })
+             .bindPopup(popupContent)
+             .addTo(markersLayerGroup);
+        });
+        
+        markersLayerGroup.addTo(map);
+
         setStatus(`${speciesNames.length} espèce(s) patrimoniale(s) cartographiée(s).`, false);
     };
 
     const displayResults = (occurrences, patrimonialMap, wkt) => {
         resultsContainer.innerHTML = '';
-        if (map) {
-            speciesLayers.forEach(layer => map.removeLayer(layer));
-        }
+        if (map) { speciesLayers.forEach(layer => map.removeLayer(layer)); }
         speciesLayers.clear();
         
         if (Object.keys(patrimonialMap).length === 0) {
@@ -199,16 +246,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const runAnalysis = async (coords) => {
         try {
-            resultsContainer.innerHTML = '';
-            mapContainer.style.display = 'none';
+            resultsContainer.innerHTML = ''; mapContainer.style.display = 'none';
             initializeMap(coords);
 
-            // ETAPE 1: Inventaire GBIF
             setStatus("Étape 1/2: Inventaire de la flore locale via GBIF...", true);
             const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
             let allOccurrences = [];
-            const maxPages = 12;
-            const limit = 1000;
+            const maxPages = 12; const limit = 1000;
             for (let page = 0; page < maxPages; page++) {
                 const offset = page * limit;
                 setStatus(`Étape 1/2: Inventaire de la flore locale via GBIF... (Page ${page + 1}/${maxPages})`, true);
@@ -221,7 +265,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             if (allOccurrences.length === 0) { throw new Error("Aucune occurrence de plante trouvée à proximité."); }
             
-            // ETAPE 2: Pré-filtrage local et envoi au serveur
             setStatus("Étape 2/2: Analyse des données...", true);
             const uniqueSpeciesNames = [...new Set(allOccurrences.map(o => o.species).filter(Boolean))];
             const relevantRules = new Map();
@@ -254,17 +297,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             const analysisResp = await fetch('/.netlify/functions/analyze-patrimonial-status', {
                 method: 'POST',
-                body: JSON.stringify({ 
-                    relevantRules: Array.from(relevantRules.values()), 
-                    uniqueSpeciesNames, 
-                    coords 
-                })
+                body: JSON.stringify({ relevantRules: Array.from(relevantRules.values()), uniqueSpeciesNames, coords })
             });
             if (!analysisResp.ok) { const errBody = await analysisResp.text(); throw new Error(`Le service d'analyse a échoué: ${errBody}`); }
             const patrimonialMap = await analysisResp.json();
             
             displayResults(allOccurrences, patrimonialMap, wkt);
-
         } catch (error) {
             console.error("Erreur durant l'analyse:", error);
             setStatus(`Erreur : ${error.message}`);
@@ -293,8 +331,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         } catch(error) { setStatus(`Erreur de géolocalisation : ${error.message}`); }
     };
     
-    // --- 6. DÉMARRAGE DE L'APPLICATION ---
-    await initializeApp(); // On attend que l'initialisation soit terminée
+    await initializeApp();
     searchAddressBtn.addEventListener('click', handleAddressSearch);
     useGeolocationBtn.addEventListener('click', handleGeolocationSearch);
     addressInput.addEventListener('keypress', (e) => e.key === 'Enter' && handleAddressSearch());
