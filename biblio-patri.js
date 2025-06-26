@@ -99,10 +99,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)'
         });
     
-        const satelliteMap = L.tileLayer('https://wxs.ign.fr/essentiels/geoportail/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
-            attribution: '&copy; <a href="https://www.ign.fr/">IGN</a>',
-            maxZoom: 19
-        });
+        const satelliteMap = L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            {
+                attribution:
+                    'Tiles © Esri — Source: Esri, Earthstar Geographics, and the GIS User Community',
+                maxZoom: 19,
+                crossOrigin: true
+            }
+        );
     
         // 2. Création de la carte avec une couche par défaut
         mapContainer.style.display = 'block';
@@ -115,7 +120,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 3. Définition des objets pour le contrôle des couches
         const baseMaps = {
             "Topographique": topoMap,
-            "Satellite (IGN)": satelliteMap
+            "Satellite": satelliteMap
         };
     
         const overlayMaps = {
@@ -344,10 +349,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             attribution: '© OpenStreetMap contributors'
         });
 
-        const satelliteMap = L.tileLayer('https://wxs.ign.fr/essentiels/geoportail/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
-            attribution: '&copy; <a href="https://www.ign.fr/">IGN</a>',
-            maxZoom: 19
-        });
+        const satelliteMap = L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            {
+                attribution:
+                    'Tiles © Esri — Source: Esri, Earthstar Geographics, and the GIS User Community',
+                maxZoom: 19,
+                crossOrigin: true
+            }
+        );
 
         obsMap = L.map(obsMapContainer, { center: [coords.latitude, coords.longitude], zoom: 18, layers: [planMap] });
 
@@ -355,7 +365,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const baseMaps = {
             "Plan": planMap,
-            "Satellite (IGN)": satelliteMap
+            "Satellite": satelliteMap
         };
 
         const overlayMaps = {
