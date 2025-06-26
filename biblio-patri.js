@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const searchAddressBtn = document.getElementById('search-address-btn');
     const useGeolocationBtn = document.getElementById('use-geolocation-btn');
     const selectOnMapBtn = document.getElementById('select-on-map-btn');
+    const drawPolygonBtn = document.getElementById('draw-polygon-btn');
     const analysisTabBtn = document.getElementById('analysis-tab-btn');
     const observationsTabBtn = document.getElementById('observations-tab-btn');
     const analysisTab = document.getElementById('analysis-tab');
@@ -25,14 +26,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     const obsStatusDiv = document.getElementById('obs-status');
     const obsMapContainer = document.getElementById('observations-map');
     const obsGeolocBtn = document.getElementById('obs-geoloc-btn');
+    const obsDrawPolygonBtn = document.getElementById('obs-draw-polygon-btn');
     const downloadShapefileBtn = document.getElementById('download-shapefile-btn');
     const downloadContainer = document.getElementById('download-container');
 
     let currentShapefileData = null;
 
     let map = null;
+    let searchAreaLayer = null;
     let patrimonialLayerGroup = L.layerGroup();
     let obsMap = null;
+    let obsSearchPolygon = null;
     let observationsLayerGroup = L.layerGroup();
     let speciesColorMap = new Map();
     let allPatrimonialLocations = null;
@@ -95,7 +99,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     // --- *** MODIFICATION MAJEURE : Ajout du contrôle des couches *** ---
-    const initializeMap = (coords) => {
+    const initializeMap = (params) => {
         if (map) {
             map.remove();
         }
@@ -118,9 +122,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 2. Création de la carte avec une couche par défaut
         mapContainer.style.display = 'block';
         map = L.map(mapContainer, {
-            center: [coords.latitude, coords.longitude],
+            center: [params.latitude, params.longitude],
             zoom: 13,
-            layers: [topoMap] // La carte topographique est affichée par défaut
+            layers: [topoMap]
         });
     
         // 3. Définition des objets pour le contrôle des couches
@@ -136,11 +140,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 4. Ajout du contrôle à la carte
         L.control.layers(baseMaps, overlayMaps).addTo(map);
 
-        // 5. Ajout du cercle de recherche
-        L.circle([coords.latitude, coords.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
+        if (searchAreaLayer) {
+            map.removeLayer(searchAreaLayer);
+            searchAreaLayer = null;
+        }
+        if (params.polygon) {
+            searchAreaLayer = L.polygon(params.polygon, { color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
+        } else {
+            searchAreaLayer = L.circle([params.latitude, params.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
+        }
     };
 
-    const initializeSelectionMap = (coords) => {
+const initializeSelectionMap = (coords) => {
         if (map) { map.remove(); }
         const topoMap = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
             attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)'
@@ -156,6 +167,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         mapContainer.style.display = 'block';
         map = L.map(mapContainer, { center: [coords.latitude, coords.longitude], zoom: 6, layers: [topoMap] });
         L.control.layers({ "Topographique": topoMap, "Satellite": satelliteMap }).addTo(map);
+};
+
+    const polygonToWkt = (latlngs) => {
+        const pts = latlngs.slice();
+        if (pts[0].lat !== pts[pts.length-1].lat || pts[0].lng !== pts[pts.length-1].lng) {
+            pts.push(pts[0]);
+        }
+        return `POLYGON((${pts.map(p => `${p.lng.toFixed(5)} ${p.lat.toFixed(5)}`).join(', ')}))`;
+    };
+
+    const centroidOf = (latlngs) => {
+        let lat = 0, lng = 0;
+        latlngs.forEach(p => { lat += p.lat; lng += p.lng; });
+        const n = latlngs.length;
+        return { latitude: lat/n, longitude: lng/n };
     };
    
     const fetchAndDisplayAllPatrimonialOccurrences = async (patrimonialMap, wkt, initialOccurrences) => {
@@ -335,13 +361,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         fetchAndDisplayAllPatrimonialOccurrences(patrimonialMap, wkt, occurrences);
     };
 
-    const runAnalysis = async (coords) => {
+    const runAnalysis = async (params) => {
         try {
             resultsContainer.innerHTML = '';
             mapContainer.style.display = 'none';
-            initializeMap(coords);
+            initializeMap(params);
             setStatus("Étape 1/4: Initialisation de la carte...", true);
-            const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
+            let wkt = params.wkt;
+            if (!wkt) {
+                wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(params.latitude*Math.PI/180);return`${(params.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(params.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
+            }
             let allOccurrences = [];
             const maxPages = 12;
             const limit = 1000;
@@ -360,7 +389,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             setStatus("Étape 3/4: Analyse des données...", true);
             const uniqueSpeciesNames = [...new Set(allOccurrences.map(o => o.species).filter(Boolean))];
             const relevantRules = new Map();
-            const { departement, region } = (await (await fetch(`https://geo.api.gouv.fr/communes?lat=${coords.latitude}&lon=${coords.longitude}&fields=departement,region`)).json())[0];
+            const { departement, region } = (await (await fetch(`https://geo.api.gouv.fr/communes?lat=${params.latitude}&lon=${params.longitude}&fields=departement,region`)).json())[0];
             for (const speciesName of uniqueSpeciesNames) {
                 const rulesForThisTaxon = rulesByTaxonIndex.get(speciesName);
                 if (rulesForThisTaxon) {
@@ -386,9 +415,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             const analysisResp = await fetch('/.netlify/functions/analyze-patrimonial-status', {
                 method: 'POST',
                 body: JSON.stringify({ 
-                    relevantRules: Array.from(relevantRules.values()), 
-                    uniqueSpeciesNames, 
-                    coords 
+                    relevantRules: Array.from(relevantRules.values()),
+                    uniqueSpeciesNames,
+                    coords: { latitude: params.latitude, longitude: params.longitude }
                 })
             });
             if (!analysisResp.ok) { const errBody = await analysisResp.text(); throw new Error(`Le service d'analyse a échoué: ${errBody}`); }
@@ -439,6 +468,26 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         };
         map.on('click', onClick);
+    };
+
+    const startPolygonSelection = async () => {
+        resultsContainer.innerHTML = '';
+        downloadContainer.style.display = 'none';
+        let center = { latitude: 46.5, longitude: 2 };
+        try {
+            const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 }));
+            center = { latitude: coords.latitude, longitude: coords.longitude };
+        } catch (e) {}
+        initializeSelectionMap(center);
+        setStatus('Tracez un polygone pour définir la zone de recherche.', false);
+        const drawer = new L.Draw.Polygon(map, { shapeOptions: { color: '#c62828' } });
+        drawer.enable();
+        map.once(L.Draw.Event.CREATED, (e) => {
+            const latlngs = e.layer.getLatLngs()[0];
+            const centroid = centroidOf(latlngs);
+            const wkt = polygonToWkt(latlngs);
+            runAnalysis({ latitude: centroid.latitude, longitude: centroid.longitude, wkt, polygon: latlngs });
+        });
     };
 
     const switchTab = (tab) => {
@@ -527,15 +576,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
-    const loadObservationsAt = async (coords) => {
+    const loadObservationsAt = async (params) => {
         try {
             if (!obsMap) initializeObservationMap();
             obsMapContainer.style.display = 'block';
-            obsMap.setView([coords.latitude, coords.longitude], 18);
-            if (obsSearchCircle) obsMap.removeLayer(obsSearchCircle);
-            obsSearchCircle = L.circle([coords.latitude, coords.longitude], { radius: OBS_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(obsMap);
+            obsMap.setView([params.latitude, params.longitude], 18);
+            if (obsSearchCircle) { obsMap.removeLayer(obsSearchCircle); obsSearchCircle = null; }
+            if (obsSearchPolygon) { obsMap.removeLayer(obsSearchPolygon); obsSearchPolygon = null; }
+            let wkt;
+            if (params.wkt) {
+                obsSearchPolygon = L.polygon(params.polygon, { color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(obsMap);
+                wkt = params.wkt;
+            } else {
+                obsSearchCircle = L.circle([params.latitude, params.longitude], { radius: OBS_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(obsMap);
+                wkt = 'POLYGON((' + Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(params.latitude*Math.PI/180);return `${(params.longitude+OBS_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(params.latitude+OBS_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`;}).join(', ') + '))';
+            }
             obsStatusDiv.textContent = 'Recherche des occurrences GBIF...';
-            const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+OBS_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+OBS_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
             const url = `https://api.gbif.org/v1/occurrence/search?limit=300&geometry=${encodeURIComponent(wkt)}&taxonKey=${TRACHEOPHYTA_TAXON_KEY}`;
             const resp = await fetch(url);
             if (!resp.ok) throw new Error("L'API GBIF est indisponible.");
@@ -556,6 +612,19 @@ document.addEventListener('DOMContentLoaded', async () => {
             obsStatusDiv.textContent = `Erreur : ${error.message}`;
         }
     };
+
+    const startObsPolygonSelection = async () => {
+        obsStatusDiv.textContent = '';
+        if (!obsMap) initializeObservationMap();
+        const drawer = new L.Draw.Polygon(obsMap, { shapeOptions: { color: '#c62828' } });
+        drawer.enable();
+        obsMap.once(L.Draw.Event.CREATED, (e) => {
+            const latlngs = e.layer.getLatLngs()[0];
+            const centroid = centroidOf(latlngs);
+            const wkt = polygonToWkt(latlngs);
+            loadObservationsAt({ latitude: centroid.latitude, longitude: centroid.longitude, wkt, polygon: latlngs });
+        });
+    };
     
     // --- 6. DÉMARRAGE DE L'APPLICATION ---
     await initializeApp();
@@ -563,9 +632,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     searchAddressBtn.addEventListener('click', handleAddressSearch);
     useGeolocationBtn.addEventListener('click', handleGeolocationSearch);
     selectOnMapBtn.addEventListener('click', startMapSelection);
+    drawPolygonBtn.addEventListener('click', startPolygonSelection);
     addressInput.addEventListener('keypress', (e) => e.key === 'Enter' && handleAddressSearch());
     analysisTabBtn.addEventListener('click', () => switchTab('analysis'));
     observationsTabBtn.addEventListener('click', () => switchTab('observations'));
     obsGeolocBtn.addEventListener('click', geolocateAndLoadObservations);
+    obsDrawPolygonBtn.addEventListener('click', startObsPolygonSelection);
     downloadShapefileBtn.addEventListener('click', downloadShapefile);
 });
