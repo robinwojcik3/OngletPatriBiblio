@@ -28,30 +28,38 @@ document.addEventListener('DOMContentLoaded', async () => {
     const obsMapContainer = document.getElementById('observations-map');
     const obsGeolocBtn = document.getElementById('obs-geoloc-btn');
     const obsDrawPolygonBtn = document.getElementById('obs-draw-polygon-btn');
+    const obsToggleTrackingBtn = document.getElementById('obs-toggle-tracking-btn');
     const downloadShapefileBtn = document.getElementById('download-shapefile-btn');
     const downloadContainer = document.getElementById('download-container');
+
+    let trackingMap = null;
+    let trackingButton = null;
 
     const stopLocationTracking = () => {
         if (trackingWatchId !== null) {
             navigator.geolocation.clearWatch(trackingWatchId);
             trackingWatchId = null;
         }
-        if (trackingMarker) {
-            map.removeLayer(trackingMarker);
+        if (trackingMarker && trackingMap) {
+            trackingMap.removeLayer(trackingMarker);
             trackingMarker = null;
         }
         trackingActive = false;
-        if (toggleTrackingBtn) toggleTrackingBtn.textContent = '⭐ Suivi de position';
+        if (trackingButton) trackingButton.textContent = '⭐ Suivi de position';
+        trackingMap = null;
+        trackingButton = null;
     };
 
-    const startLocationTracking = () => {
-        if (!map || trackingActive) return;
+    const startLocationTracking = (mapInstance, buttonEl) => {
+        if (!mapInstance || trackingActive) return;
+        trackingMap = mapInstance;
+        trackingButton = buttonEl;
         trackingWatchId = navigator.geolocation.watchPosition(
             (pos) => {
                 const latlng = [pos.coords.latitude, pos.coords.longitude];
                 if (!trackingMarker) {
                     const icon = L.divIcon({ html: '⭐', className: 'user-location-icon', iconSize: [20,20], iconAnchor: [10,10] });
-                    trackingMarker = L.marker(latlng, { icon }).addTo(map);
+                    trackingMarker = L.marker(latlng, { icon }).addTo(trackingMap);
                 } else {
                     trackingMarker.setLatLng(latlng);
                 }
@@ -65,11 +73,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             { enableHighAccuracy: true }
         );
         trackingActive = true;
-        if (toggleTrackingBtn) toggleTrackingBtn.textContent = '🛑 Arrêter suivi';
+        if (trackingButton) trackingButton.textContent = '🛑 Arrêter suivi';
     };
 
-    const toggleLocationTracking = () => {
-        if (trackingActive) stopLocationTracking(); else startLocationTracking();
+    const toggleLocationTracking = (mapInstance, buttonEl) => {
+        if (trackingActive) stopLocationTracking(); else startLocationTracking(mapInstance, buttonEl);
     };
 
     let currentShapefileData = null;
@@ -697,5 +705,11 @@ const initializeSelectionMap = (coords) => {
     obsGeolocBtn.addEventListener('click', geolocateAndLoadObservations);
     obsDrawPolygonBtn.addEventListener('click', startObsPolygonSelection);
     downloadShapefileBtn.addEventListener('click', downloadShapefile);
-    toggleTrackingBtn.addEventListener('click', toggleLocationTracking);
+    toggleTrackingBtn.addEventListener('click', () => toggleLocationTracking(map, toggleTrackingBtn));
+    if (obsToggleTrackingBtn) {
+        obsToggleTrackingBtn.addEventListener('click', () => {
+            initializeObservationMap();
+            toggleLocationTracking(obsMap, obsToggleTrackingBtn);
+        });
+    }
 });
