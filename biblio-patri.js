@@ -137,7 +137,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const fetchAndDisplayAllPatrimonialOccurrences = async (patrimonialMap, wkt, initialOccurrences) => {
         const speciesNames = Object.keys(patrimonialMap);
         if (speciesNames.length === 0) return;
-        setStatus("Étape 3/3: Cartographie détaillée des espèces patrimoniales...", true);
+        setStatus(`Étape 4/4: Cartographie détaillée des espèces patrimoniales... (0/${speciesNames.length})`, true);
         let allOccurrencesWithContext = [];
         const taxonKeyMap = new Map();
         initialOccurrences.forEach(occ => {
@@ -146,6 +146,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
         for (const [index, speciesName] of speciesNames.entries()) {
+            setStatus(`Étape 4/4: Cartographie détaillée des espèces patrimoniales... (${index + 1}/${speciesNames.length})`, true);
             const taxonKey = taxonKeyMap.get(speciesName);
             if (!taxonKey) continue;
             const color = SPECIES_COLORS[index % SPECIES_COLORS.length];
@@ -224,7 +225,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             setStatus(`Aucune occurrence d'espèce patrimoniale trouvée dans ce rayon de ${SEARCH_RADIUS_KM} km.`);
             return;
         }
-        setStatus(`${Object.keys(patrimonialMap).length} espèce(s) patrimoniale(s) trouvée(s). Lancement de la cartographie détaillée...`);
+        setStatus(`${Object.keys(patrimonialMap).length} espèce(s) patrimoniale(s) trouvée(s). Lancement de l'étape 4/4 : cartographie détaillée...`);
         const tableBody = document.createElement('tbody');
         Object.keys(patrimonialMap).sort().forEach((speciesName, index) => {
             const color = SPECIES_COLORS[index % SPECIES_COLORS.length];
@@ -246,14 +247,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             resultsContainer.innerHTML = '';
             mapContainer.style.display = 'none';
             initializeMap(coords);
-            setStatus("Étape 1/2: Inventaire de la flore locale via GBIF...", true);
+            setStatus("Étape 1/4: Initialisation de la carte...", true);
             const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
             let allOccurrences = [];
             const maxPages = 12;
             const limit = 1000;
+            setStatus(`Étape 2/4: Inventaire de la flore locale via GBIF... (Page 0/${maxPages})`, true);
             for (let page = 0; page < maxPages; page++) {
                 const offset = page * limit;
-                setStatus(`Étape 1/2: Inventaire de la flore locale via GBIF... (Page ${page + 1}/${maxPages})`, true);
+                setStatus(`Étape 2/4: Inventaire de la flore locale via GBIF... (Page ${page + 1}/${maxPages})`, true);
                 const gbifUrl = `https://api.gbif.org/v1/occurrence/search?limit=${limit}&offset=${offset}&geometry=${encodeURIComponent(wkt)}&kingdomKey=6`;
                 const gbifResp = await fetch(gbifUrl);
                 if (!gbifResp.ok) throw new Error("L'API GBIF est indisponible.");
@@ -262,7 +264,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (pageData.endOfRecords) { break; }
             }
             if (allOccurrences.length === 0) { throw new Error("Aucune occurrence de plante trouvée à proximité."); }
-            setStatus("Étape 2/2: Analyse des données...", true);
+            setStatus("Étape 3/4: Analyse des données...", true);
             const uniqueSpeciesNames = [...new Set(allOccurrences.map(o => o.species).filter(Boolean))];
             const relevantRules = new Map();
             const { departement, region } = (await (await fetch(`https://geo.api.gouv.fr/communes?lat=${coords.latitude}&lon=${coords.longitude}&fields=departement,region`)).json())[0];
