@@ -119,8 +119,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)'
         });
     
-        const satelliteMap = L.tileLayer('https://wxs.ign.fr/essentiels/geoportail/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
-            attribution: '&copy; <a href="https://www.ign.fr/">IGN</a>',
+        const satelliteMap = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles \xA9 Esri',
             maxZoom: 19
         });
     
@@ -135,7 +135,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 3. Définition des objets pour le contrôle des couches
         const baseMaps = {
             "Topographique": topoMap,
-            "Satellite (IGN)": satelliteMap
+            "Satellite": satelliteMap
         };
     
         const overlayMaps = {
@@ -355,8 +355,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             attribution: '© OpenStreetMap contributors'
         });
 
-        const satelliteMap = L.tileLayer('https://wxs.ign.fr/essentiels/geoportail/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
-            attribution: '&copy; <a href="https://www.ign.fr/">IGN</a>',
+        const satelliteMap = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles \xA9 Esri',
             maxZoom: 19
         });
 
@@ -366,7 +366,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const baseMaps = {
             "Plan": planMap,
-            "Satellite (IGN)": satelliteMap
+            "Satellite": satelliteMap
         };
 
         const overlayMaps = {
