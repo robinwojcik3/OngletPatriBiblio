@@ -3,6 +3,11 @@
 
 document.addEventListener('DOMContentLoaded', async () => {
     // --- 1. Injection des styles ---
+
+    // Définir la projection Lambert-93 pour proj4
+    if (typeof proj4 !== 'undefined') {
+        proj4.defs('EPSG:2154', '+proj=lcc +lat_1=49 +lat_2=44 +lat_0=46.5 +lon_0=3 +x_0=700000 +y_0=6600000 +ellps=GRS80 +units=m +no_defs');
+    }
     
     
     // --- 2. Déclaration des variables et constantes globales ---
@@ -18,6 +23,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const observationsTab = document.getElementById('observations-tab');
     const obsStatusDiv = document.getElementById('obs-status');
     const obsMapContainer = document.getElementById('observations-map');
+    const downloadShapefileBtn = document.getElementById('download-shapefile-btn');
+    const downloadContainer = document.getElementById('download-container');
+
+    let currentShapefileData = null;
 
     let map = null;
     let patrimonialLayerGroup = L.layerGroup();
@@ -169,6 +178,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
         patrimonialLayerGroup.clearLayers();
+        const features = [];
         for (const location of locations.values()) {
             const count = location.speciesList.length;
             const iconHtml = `<div class="marker-cluster-icon" style="background-color: ${count > 1 ? '#c62828' : location.speciesList[0].color};"><span>${count}</span></div>`;
@@ -180,6 +190,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             popupContent += '</ul></div>';
             const marker = L.marker([location.lat, location.lon], { icon }).bindPopup(popupContent);
             patrimonialLayerGroup.addLayer(marker);
+            if (typeof proj4 !== 'undefined') {
+                const coords2154 = proj4('EPSG:4326', 'EPSG:2154', [location.lon, location.lat]);
+                features.push({
+                    type: 'Feature',
+                    properties: { species: location.speciesList.map(s => s.name).join('; ') },
+                    geometry: { type: 'Point', coordinates: coords2154 }
+                });
+            }
+        }
+        if (features.length > 0) {
+            currentShapefileData = { type: 'FeatureCollection', features };
+            downloadContainer.style.display = 'block';
+        } else {
+            currentShapefileData = null;
+            downloadContainer.style.display = 'none';
         }
         if(!map.hasLayer(patrimonialLayerGroup)) {
             patrimonialLayerGroup.addTo(map);
@@ -358,6 +383,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         obsStatusDiv.innerHTML = `${floraOccs.length} observation(s) de flore trouvée(s).`;
     };
 
+    const downloadShapefile = () => {
+        if (!currentShapefileData) return;
+        try {
+            shpwrite.download(currentShapefileData, { folder: 'patrimonial_data', types: { point: 'occurrences' } });
+        } catch (e) {
+            if (typeof showNotification === 'function') {
+                showNotification("Erreur lors de la génération du shapefile", 'error');
+            }
+        }
+    };
+
     const loadObservations = async () => {
         try {
             obsStatusDiv.textContent = 'Récupération de votre position...';
@@ -386,4 +422,5 @@ document.addEventListener('DOMContentLoaded', async () => {
     addressInput.addEventListener('keypress', (e) => e.key === 'Enter' && handleAddressSearch());
     analysisTabBtn.addEventListener('click', () => switchTab('analysis'));
     observationsTabBtn.addEventListener('click', () => switchTab('observations'));
+    downloadShapefileBtn.addEventListener('click', downloadShapefile);
 });
