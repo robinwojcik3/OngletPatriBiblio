@@ -236,7 +236,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 popupContent += `<li><span class="legend-color" style="background-color:${s.color};"></span><i>${s.name}</i></li>`;
             });
             popupContent += '</ul></div>';
-            const marker = L.marker([location.lat, location.lon], { icon }).bindPopup(popupContent);
+            const tooltipHtml = `<i>${filtered.map(s => s.name).join('<br>')}</i>`;
+            const marker = L.marker([location.lat, location.lon], { icon })
+                .bindPopup(popupContent)
+                .bindTooltip(tooltipHtml, { permanent: true, direction: 'right', offset: [8, 0] });
             patrimonialLayerGroup.addLayer(marker);
             if (typeof proj4 !== 'undefined') {
                 const coords2154 = proj4('EPSG:4326', 'EPSG:2154', [location.lon, location.lat]);
