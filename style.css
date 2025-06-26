@@ -27,7 +27,7 @@ body {
 
 .main-content {
   width: 100%;
-  max-width: var(--max-width);
+  max-width: none;
   margin: auto;
   padding: 1rem;
 }

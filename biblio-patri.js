@@ -166,7 +166,7 @@ const initializeSelectionMap = (coords) => {
             }
         );
         mapContainer.style.display = 'block';
-        map = L.map(mapContainer, { center: [coords.latitude, coords.longitude], zoom: 6, layers: [topoMap] });
+        map = L.map(mapContainer, { center: [coords.latitude, coords.longitude], zoom: 12, layers: [topoMap] });
         L.control.layers({ "Topographique": topoMap, "Satellite": satelliteMap }).addTo(map);
 };
 
@@ -463,7 +463,7 @@ const initializeSelectionMap = (coords) => {
     const startMapSelection = async () => {
         resultsContainer.innerHTML = '';
         downloadContainer.style.display = 'none';
-        let center = { latitude: 46.5, longitude: 2 };
+        let center = { latitude: 45.1885, longitude: 5.7245 };
         try {
             const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 }));
             center = { latitude: coords.latitude, longitude: coords.longitude };
@@ -482,7 +482,7 @@ const initializeSelectionMap = (coords) => {
     const startPolygonSelection = async () => {
         resultsContainer.innerHTML = '';
         downloadContainer.style.display = 'none';
-        let center = { latitude: 46.5, longitude: 2 };
+        let center = { latitude: 45.1885, longitude: 5.7245 };
         try {
             const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 }));
             center = { latitude: coords.latitude, longitude: coords.longitude };
@@ -638,6 +638,7 @@ const initializeSelectionMap = (coords) => {
     // --- 6. DÉMARRAGE DE L'APPLICATION ---
     await initializeApp();
     switchTab('analysis');
+    startMapSelection();
     searchAddressBtn.addEventListener('click', handleAddressSearch);
     useGeolocationBtn.addEventListener('click', handleGeolocationSearch);
     selectOnMapBtn.addEventListener('click', startMapSelection);
