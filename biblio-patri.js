@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const observationsTab = document.getElementById('observations-tab');
     const obsStatusDiv = document.getElementById('obs-status');
     const obsMapContainer = document.getElementById('observations-map');
+    const downloadShapefileBtn = document.getElementById('download-shapefile-btn');
 
     let map = null;
     let patrimonialLayerGroup = L.layerGroup();
@@ -119,7 +120,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)'
         });
     
-        const satelliteMap = L.tileLayer('https://wxs.ign.fr/essentiels/geoportail/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
+                const satelliteMap = L.tileLayer('https://wxs.ign.fr/choisirgeoportail/geoportail/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&LAYER=ORTHOIMAGERY.ORTHOPHOTOS.BDORTHO.L93&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
             attribution: '&copy; <a href="https://www.ign.fr/">IGN</a>',
             maxZoom: 19
         });
@@ -221,8 +222,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         patrimonialLayerGroup.clearLayers();
         if (Object.keys(patrimonialMap).length === 0) {
             setStatus(`Aucune occurrence d'espèce patrimoniale trouvée dans ce rayon de ${SEARCH_RADIUS_KM} km.`);
+            downloadShapefileBtn.style.display = 'none';
             return;
         }
+        downloadShapefileBtn.style.display = 'block';
         setStatus(`${Object.keys(patrimonialMap).length} espèce(s) patrimoniale(s) trouvée(s). Lancement de la cartographie détaillée...`);
         const tableBody = document.createElement('tbody');
         Object.keys(patrimonialMap).sort().forEach((speciesName, index) => {
@@ -355,7 +358,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             attribution: '© OpenStreetMap contributors'
         });
 
-        const satelliteMap = L.tileLayer('https://wxs.ign.fr/essentiels/geoportail/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
+                const satelliteMap = L.tileLayer('https://wxs.ign.fr/choisirgeoportail/geoportail/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&LAYER=ORTHOIMAGERY.ORTHOPHOTOS.BDORTHO.L93&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
             attribution: '&copy; <a href="https://www.ign.fr/">IGN</a>',
             maxZoom: 19
         });
