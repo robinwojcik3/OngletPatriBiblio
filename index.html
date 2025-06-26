@@ -7,7 +7,9 @@
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌿</text></svg>">
     <link rel="stylesheet" href="style.css"/>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
     
     <script src="lib/proj4.js"></script>
     <script src="lib/shpwrite.js"></script>
@@ -36,6 +38,10 @@
                 <div class="search-group">
                     <button id="select-on-map-btn" class="action-button">Choisir sur la carte</button>
                 </div>
+                <div class="separator">ou</div>
+                <div class="search-group">
+                    <button id="draw-zone-btn" class="action-button">Tracer une zone</button>
+                </div>
             </div>
 
             <div id="status" class="status-container"></div>
@@ -53,6 +59,10 @@
             <div class="search-controls">
                 <div class="search-group">
                     <button id="obs-geoloc-btn" class="action-button">Utiliser ma position actuelle</button>
+                </div>
+                <div class="separator">ou</div>
+                <div class="search-group">
+                    <button id="obs-draw-zone-btn" class="action-button">Tracer une zone</button>
                 </div>
             </div>
             <div id="obs-status" class="status-container"></div>

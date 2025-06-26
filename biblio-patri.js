@@ -25,6 +25,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const obsStatusDiv = document.getElementById('obs-status');
     const obsMapContainer = document.getElementById('observations-map');
     const obsGeolocBtn = document.getElementById('obs-geoloc-btn');
+    const drawZoneBtn = document.getElementById('draw-zone-btn');
+    const obsDrawZoneBtn = document.getElementById('obs-draw-zone-btn');
     const downloadShapefileBtn = document.getElementById('download-shapefile-btn');
     const downloadContainer = document.getElementById('download-container');
 
@@ -32,8 +34,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     let map = null;
     let patrimonialLayerGroup = L.layerGroup();
+    let searchPolygon = null;
+    let drawnItems = null;
     let obsMap = null;
     let observationsLayerGroup = L.layerGroup();
+    let obsSearchPolygon = null;
+    let obsDrawnItems = null;
     let speciesColorMap = new Map();
     let allPatrimonialLocations = null;
     let allPatrimonialSpecies = [];
@@ -136,8 +142,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 4. Ajout du contrôle à la carte
         L.control.layers(baseMaps, overlayMaps).addTo(map);
 
-        // 5. Ajout du cercle de recherche
-        L.circle([coords.latitude, coords.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
     };
 
     const initializeSelectionMap = (coords) => {
@@ -332,13 +336,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         fetchAndDisplayAllPatrimonialOccurrences(patrimonialMap, wkt, occurrences);
     };
 
-    const runAnalysis = async (coords) => {
+    const runAnalysis = async (coords, polygonCoords = null) => {
         try {
             resultsContainer.innerHTML = '';
             mapContainer.style.display = 'none';
             initializeMap(coords);
             setStatus("Étape 1/4: Initialisation de la carte...", true);
-            const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
+            let wkt;
+            if (polygonCoords) {
+                if (searchPolygon) map.removeLayer(searchPolygon);
+                searchPolygon = L.polygon(polygonCoords, { color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
+                map.fitBounds(searchPolygon.getBounds());
+                wkt = `POLYGON((${polygonCoords.map(p => `${p.lng.toFixed(5)} ${p.lat.toFixed(5)}`).join(', ')}))`;
+            } else {
+                wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
+                L.circle([coords.latitude, coords.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
+            }
             let allOccurrences = [];
             const maxPages = 12;
             const limit = 1000;
@@ -438,6 +451,32 @@ document.addEventListener('DOMContentLoaded', async () => {
         map.on('click', onClick);
     };
 
+    const startPolygonSelection = async () => {
+        resultsContainer.innerHTML = '';
+        downloadContainer.style.display = 'none';
+        let center = { latitude: 46.5, longitude: 2 };
+        try {
+            const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 }));
+            center = { latitude: coords.latitude, longitude: coords.longitude };
+        } catch (e) {}
+        initializeSelectionMap(center);
+        setStatus('Tracez un polygone puis validez.', false);
+        drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+        const drawControl = new L.Control.Draw({
+            draw: { polygon: true, polyline: false, rectangle: false, circle: false, marker: false, circlemarker: false },
+            edit: { featureGroup: drawnItems }
+        });
+        map.addControl(drawControl);
+        map.once(L.Draw.Event.CREATED, (e) => {
+            map.removeControl(drawControl);
+            drawnItems.addLayer(e.layer);
+            const latlngs = e.layer.getLatLngs()[0];
+            const c = e.layer.getBounds().getCenter();
+            runAnalysis({ latitude: c.lat, longitude: c.lng }, latlngs);
+        });
+    };
+
     const switchTab = (tab) => {
         if (tab === 'analysis') {
             analysisTab.style.display = 'block';
@@ -450,7 +489,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             analysisTabBtn.classList.remove('active');
             observationsTabBtn.classList.add('active');
             initializeObservationMap();
-            obsStatusDiv.textContent = "Double-cliquez sur la carte ou faites un long appui pour choisir un endroit, ou utilisez la géolocalisation.";
+            obsStatusDiv.textContent = "Double-cliquez ou tracez un polygone pour choisir une zone, ou utilisez la géolocalisation.";
         }
     };
 
@@ -497,6 +536,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         obsMap.on('mouseup touchend', () => clearTimeout(pressTimer));
     };
 
+    const startObservationPolygonSelection = () => {
+        if (!obsMap) initializeObservationMap();
+        obsMapContainer.style.display = 'block';
+        obsStatusDiv.textContent = 'Tracez un polygone pour rechercher des observations.';
+        obsDrawnItems = new L.FeatureGroup();
+        obsMap.addLayer(obsDrawnItems);
+        const drawControl = new L.Control.Draw({
+            draw: { polygon: true, polyline: false, rectangle: false, circle: false, marker: false, circlemarker: false },
+            edit: { featureGroup: obsDrawnItems }
+        });
+        obsMap.addControl(drawControl);
+        obsMap.once(L.Draw.Event.CREATED, (e) => {
+            obsMap.removeControl(drawControl);
+            obsDrawnItems.addLayer(e.layer);
+            const latlngs = e.layer.getLatLngs()[0];
+            const c = e.layer.getBounds().getCenter();
+            loadObservationsAt({ latitude: c.lat, longitude: c.lng }, latlngs);
+        });
+    };
+
     const displayObservations = (occurrences) => {
         observationsLayerGroup.clearLayers();
         const floraOccs = occurrences.filter(o =>
@@ -524,15 +583,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
-    const loadObservationsAt = async (coords) => {
+    const loadObservationsAt = async (coords, polygonCoords = null) => {
         try {
             if (!obsMap) initializeObservationMap();
             obsMapContainer.style.display = 'block';
-            obsMap.setView([coords.latitude, coords.longitude], 18);
-            if (obsSearchCircle) obsMap.removeLayer(obsSearchCircle);
-            obsSearchCircle = L.circle([coords.latitude, coords.longitude], { radius: OBS_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(obsMap);
+            let wkt;
+            if (polygonCoords) {
+                if (obsSearchPolygon) obsMap.removeLayer(obsSearchPolygon);
+                if (obsSearchCircle) { obsMap.removeLayer(obsSearchCircle); obsSearchCircle = null; }
+                obsSearchPolygon = L.polygon(polygonCoords, { color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(obsMap);
+                obsMap.fitBounds(obsSearchPolygon.getBounds());
+                wkt = `POLYGON((${polygonCoords.map(p => `${p.lng.toFixed(5)} ${p.lat.toFixed(5)}`).join(', ')}))`;
+            } else {
+                obsMap.setView([coords.latitude, coords.longitude], 18);
+                if (obsSearchCircle) obsMap.removeLayer(obsSearchCircle);
+                if (obsSearchPolygon) { obsMap.removeLayer(obsSearchPolygon); obsSearchPolygon = null; }
+                obsSearchCircle = L.circle([coords.latitude, coords.longitude], { radius: OBS_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(obsMap);
+                wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+OBS_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+OBS_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
+            }
             obsStatusDiv.textContent = 'Recherche des occurrences GBIF...';
-            const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+OBS_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+OBS_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
             const url = `https://api.gbif.org/v1/occurrence/search?limit=300&geometry=${encodeURIComponent(wkt)}&taxonKey=${TRACHEOPHYTA_TAXON_KEY}`;
             const resp = await fetch(url);
             if (!resp.ok) throw new Error("L'API GBIF est indisponible.");
@@ -564,5 +633,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     analysisTabBtn.addEventListener('click', () => switchTab('analysis'));
     observationsTabBtn.addEventListener('click', () => switchTab('observations'));
     obsGeolocBtn.addEventListener('click', geolocateAndLoadObservations);
+    drawZoneBtn.addEventListener('click', startPolygonSelection);
+    obsDrawZoneBtn.addEventListener('click', startObservationPolygonSelection);
     downloadShapefileBtn.addEventListener('click', downloadShapefile);
 });
