@@ -152,7 +152,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
-const initializeSelectionMap = (coords) => {
+const initializeSelectionMap = (coords, zoom = 6) => {
         if (map) { map.remove(); }
         const topoMap = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
             attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)'
@@ -166,7 +166,7 @@ const initializeSelectionMap = (coords) => {
             }
         );
         mapContainer.style.display = 'block';
-        map = L.map(mapContainer, { center: [coords.latitude, coords.longitude], zoom: 6, layers: [topoMap] });
+        map = L.map(mapContainer, { center: [coords.latitude, coords.longitude], zoom, layers: [topoMap] });
         L.control.layers({ "Topographique": topoMap, "Satellite": satelliteMap }).addTo(map);
 };
 
@@ -468,7 +468,7 @@ const initializeSelectionMap = (coords) => {
             const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 }));
             center = { latitude: coords.latitude, longitude: coords.longitude };
         } catch (e) {}
-        initializeSelectionMap(center);
+        initializeSelectionMap(center, 6);
         setStatus('Cliquez sur la carte pour choisir un lieu.', false);
         const onClick = (e) => {
             if (confirm("Voulez-vous lancer l'analyse sur ce lieu ?")) {
@@ -487,7 +487,7 @@ const initializeSelectionMap = (coords) => {
             const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 }));
             center = { latitude: coords.latitude, longitude: coords.longitude };
         } catch (e) {}
-        initializeSelectionMap(center);
+        initializeSelectionMap(center, 6);
         setStatus('Tracez un polygone pour définir la zone de recherche.', false);
         const drawer = new L.Draw.Polygon(map, { shapeOptions: { color: '#c62828' } });
         drawer.enable();
@@ -638,6 +638,7 @@ const initializeSelectionMap = (coords) => {
     // --- 6. DÉMARRAGE DE L'APPLICATION ---
     await initializeApp();
     switchTab('analysis');
+    initializeSelectionMap({ latitude: 45.188, longitude: 5.724 }, 11);
     searchAddressBtn.addEventListener('click', handleAddressSearch);
     useGeolocationBtn.addEventListener('click', handleGeolocationSearch);
     selectOnMapBtn.addEventListener('click', startMapSelection);
