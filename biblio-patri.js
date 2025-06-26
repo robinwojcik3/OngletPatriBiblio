@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     let userLocationMarker = null;
     let geolocationWatchId = null;
     let rulesByTaxonIndex = new Map();
+    let allOccurrencesWithContext = [];
     const SEARCH_RADIUS_KM = 2;
     const OBS_RADIUS_KM = 0.2;
     const TRACHEOPHYTA_TAXON_KEY = 7707728; // GBIF taxonKey for vascular plants
@@ -425,4 +426,43 @@ document.addEventListener('DOMContentLoaded', async () => {
     addressInput.addEventListener('keypress', (e) => e.key === 'Enter' && handleAddressSearch());
     analysisTabBtn.addEventListener('click', () => switchTab('analysis'));
     observationsTabBtn.addEventListener('click', () => switchTab('observations'));
+
+    const handleShapefileDownload = async () => {
+        if (allOccurrencesWithContext.length === 0) {
+            setStatus("Aucune donnée à télécharger. Veuillez lancer une analyse d'abord.");
+            return;
+        }
+
+        setStatus("Préparation du téléchargement Shapefile...", true);
+        try {
+            const response = await fetch('/.netlify/functions/generate-shapefile', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ occurrences: allOccurrencesWithContext }),
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Erreur du service de génération Shapefile: ${errorText}`);
+            }
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.style.display = 'none';
+            a.href = url;
+            a.download = 'patrimonial_species.zip'; // Shapefiles are usually distributed as zips
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            setStatus("Téléchargement lancé !");
+        } catch (error) {
+            console.error("Erreur lors du téléchargement du Shapefile:", error);
+            setStatus(`Erreur lors du téléchargement: ${error.message}`);
+        }
+    };
+
+    downloadShapefileBtn.addEventListener('click', handleShapefileDownload);
 });
