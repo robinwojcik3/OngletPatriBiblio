@@ -140,3 +140,11 @@ html[data-theme="dark"] tbody tr:hover { background-color: rgba(198, 40, 40, 0.1
 .custom-popup b { display: block; margin-bottom: 5px; font-size: 1.1em; color: var(--primary); }
 .custom-popup ul { list-style: none; padding: 0; margin: 0; }
 .custom-popup li { padding: 3px 0; }
+@media (max-width: 600px) {
+  .main-content { padding: 0.5rem; margin: 1rem auto; }
+  .search-controls { padding: 1rem; gap: 0.5rem; }
+  .tab-button { padding: 0.4rem 0.6rem; font-size: 0.9rem; }
+  .action-button { padding: 0.4rem 0.6rem; font-size: 0.9rem; }
+  #address-input { width: 100%; }
+  #map, #observations-map { height: 300px; }
+}
