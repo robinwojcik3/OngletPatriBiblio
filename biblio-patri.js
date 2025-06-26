@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const useGeolocationBtn = document.getElementById('use-geolocation-btn');
     const selectOnMapBtn = document.getElementById('select-on-map-btn');
     const drawPolygonBtn = document.getElementById('draw-polygon-btn');
+    const toggleTrackingBtn = document.getElementById('toggle-tracking-btn');
     const analysisTabBtn = document.getElementById('analysis-tab-btn');
     const observationsTabBtn = document.getElementById('observations-tab-btn');
     const analysisTab = document.getElementById('analysis-tab');
@@ -29,6 +30,47 @@ document.addEventListener('DOMContentLoaded', async () => {
     const obsDrawPolygonBtn = document.getElementById('obs-draw-polygon-btn');
     const downloadShapefileBtn = document.getElementById('download-shapefile-btn');
     const downloadContainer = document.getElementById('download-container');
+
+    const stopLocationTracking = () => {
+        if (trackingWatchId !== null) {
+            navigator.geolocation.clearWatch(trackingWatchId);
+            trackingWatchId = null;
+        }
+        if (trackingMarker) {
+            map.removeLayer(trackingMarker);
+            trackingMarker = null;
+        }
+        trackingActive = false;
+        if (toggleTrackingBtn) toggleTrackingBtn.textContent = '⭐ Suivi de position';
+    };
+
+    const startLocationTracking = () => {
+        if (!map || trackingActive) return;
+        trackingWatchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                const latlng = [pos.coords.latitude, pos.coords.longitude];
+                if (!trackingMarker) {
+                    const icon = L.divIcon({ html: '⭐', className: 'user-location-icon', iconSize: [20,20], iconAnchor: [10,10] });
+                    trackingMarker = L.marker(latlng, { icon }).addTo(map);
+                } else {
+                    trackingMarker.setLatLng(latlng);
+                }
+            },
+            () => {
+                if (typeof showNotification === 'function') {
+                    showNotification('Erreur de géolocalisation', 'error');
+                }
+                stopLocationTracking();
+            },
+            { enableHighAccuracy: true }
+        );
+        trackingActive = true;
+        if (toggleTrackingBtn) toggleTrackingBtn.textContent = '🛑 Arrêter suivi';
+    };
+
+    const toggleLocationTracking = () => {
+        if (trackingActive) stopLocationTracking(); else startLocationTracking();
+    };
 
     let currentShapefileData = null;
 
@@ -43,6 +85,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     let allPatrimonialSpecies = [];
     let selectedSpecies = new Set();
     let rulesByTaxonIndex = new Map();
+    let trackingWatchId = null;
+    let trackingMarker = null;
+    let trackingActive = false;
     const SEARCH_RADIUS_KM = 2;
     const OBS_RADIUS_KM = 1;
     const TRACHEOPHYTA_TAXON_KEY = 7707728; // GBIF taxonKey for vascular plants
@@ -101,6 +146,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // --- *** MODIFICATION MAJEURE : Ajout du contrôle des couches *** ---
     const initializeMap = (params) => {
+        stopLocationTracking();
         if (map) {
             map.remove();
         }
@@ -153,6 +199,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
 const initializeSelectionMap = (coords) => {
+        stopLocationTracking();
         if (map) { map.remove(); }
         const topoMap = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
             attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)'
@@ -510,6 +557,7 @@ const initializeSelectionMap = (coords) => {
             observationsTab.style.display = 'block';
             analysisTabBtn.classList.remove('active');
             observationsTabBtn.classList.add('active');
+            stopLocationTracking();
             initializeObservationMap();
             obsStatusDiv.textContent = "Double-cliquez sur la carte ou faites un long appui pour choisir un endroit, ou utilisez la géolocalisation.";
         }
@@ -648,4 +696,5 @@ const initializeSelectionMap = (coords) => {
     obsGeolocBtn.addEventListener('click', geolocateAndLoadObservations);
     obsDrawPolygonBtn.addEventListener('click', startObsPolygonSelection);
     downloadShapefileBtn.addEventListener('click', downloadShapefile);
+    toggleTrackingBtn.addEventListener('click', toggleLocationTracking);
 });
