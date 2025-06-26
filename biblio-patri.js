@@ -33,6 +33,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     let currentShapefileData = null;
 
     let map = null;
+    let geolocWatchId = null;
+    let userLocationMarker = null;
     let searchAreaLayer = null;
     let patrimonialLayerGroup = L.layerGroup();
     let obsMap = null;
@@ -150,6 +152,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         } else {
             searchAreaLayer = L.circle([params.latitude, params.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
         }
+        startLocationTracking(map);
     };
 
 const initializeSelectionMap = (coords) => {
@@ -168,7 +171,34 @@ const initializeSelectionMap = (coords) => {
         mapContainer.style.display = 'block';
         map = L.map(mapContainer, { center: [coords.latitude, coords.longitude], zoom: 6, layers: [topoMap] });
         L.control.layers({ "Topographique": topoMap, "Satellite": satelliteMap }).addTo(map);
+        startLocationTracking(map);
 };
+
+    const startLocationTracking = (targetMap) => {
+        if (!navigator.geolocation) return;
+        if (geolocWatchId) {
+            navigator.geolocation.clearWatch(geolocWatchId);
+            geolocWatchId = null;
+        }
+        geolocWatchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                const latlng = [pos.coords.latitude, pos.coords.longitude];
+                if (!userLocationMarker) {
+                    userLocationMarker = L.marker(latlng, {
+                        icon: L.divIcon({ className: 'user-location-icon', html: '⭐', iconSize: [24,24], iconAnchor: [12,12] })
+                    }).addTo(targetMap);
+                } else {
+                    userLocationMarker.setLatLng(latlng);
+                    if (!targetMap.hasLayer(userLocationMarker)) {
+                        userLocationMarker.addTo(targetMap);
+                    }
+                }
+                targetMap.panTo(latlng);
+            },
+            (err) => console.error(err),
+            { enableHighAccuracy: true }
+        );
+    };
 
     const polygonToWkt = (latlngs) => {
         const pts = latlngs.slice();
@@ -505,12 +535,14 @@ const initializeSelectionMap = (coords) => {
             observationsTab.style.display = 'none';
             analysisTabBtn.classList.add('active');
             observationsTabBtn.classList.remove('active');
+            if (map) startLocationTracking(map);
         } else {
             analysisTab.style.display = 'none';
             observationsTab.style.display = 'block';
             analysisTabBtn.classList.remove('active');
             observationsTabBtn.classList.add('active');
             initializeObservationMap();
+            if (obsMap) startLocationTracking(obsMap);
             obsStatusDiv.textContent = "Double-cliquez sur la carte ou faites un long appui pour choisir un endroit, ou utilisez la géolocalisation.";
         }
     };
@@ -556,6 +588,7 @@ const initializeSelectionMap = (coords) => {
             pressTimer = setTimeout(() => handleSelect(e.latlng), 600);
         });
         obsMap.on('mouseup touchend', () => clearTimeout(pressTimer));
+        startLocationTracking(obsMap);
     };
 
     const displayObservations = (occurrences) => {
