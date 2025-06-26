@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const addressInput = document.getElementById('address-input');
     const searchAddressBtn = document.getElementById('search-address-btn');
     const useGeolocationBtn = document.getElementById('use-geolocation-btn');
+    const selectOnMapBtn = document.getElementById('select-on-map-btn');
     const analysisTabBtn = document.getElementById('analysis-tab-btn');
     const observationsTabBtn = document.getElementById('observations-tab-btn');
     const analysisTab = document.getElementById('analysis-tab');
@@ -130,9 +131,27 @@ document.addEventListener('DOMContentLoaded', async () => {
     
         // 4. Ajout du contrôle à la carte
         L.control.layers(baseMaps, overlayMaps).addTo(map);
-        
+
         // 5. Ajout du cercle de recherche
         L.circle([coords.latitude, coords.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
+    };
+
+    const initializeSelectionMap = (coords) => {
+        if (map) { map.remove(); }
+        const topoMap = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+            attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)'
+        });
+        const satelliteMap = L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            {
+                attribution: 'Tiles © Esri — Source: Esri, Earthstar Geographics, and the GIS User Community',
+                maxZoom: 19,
+                crossOrigin: true
+            }
+        );
+        mapContainer.style.display = 'block';
+        map = L.map(mapContainer, { center: [coords.latitude, coords.longitude], zoom: 6, layers: [topoMap] });
+        L.control.layers({ "Topographique": topoMap, "Satellite": satelliteMap }).addTo(map);
     };
    
     const fetchAndDisplayAllPatrimonialOccurrences = async (patrimonialMap, wkt, initialOccurrences) => {
@@ -330,6 +349,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         } catch(error) { setStatus(`Erreur de géolocalisation : ${error.message}`); }
     };
 
+    const startMapSelection = async () => {
+        resultsContainer.innerHTML = '';
+        downloadContainer.style.display = 'none';
+        let center = { latitude: 46.5, longitude: 2 };
+        try {
+            const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 }));
+            center = { latitude: coords.latitude, longitude: coords.longitude };
+        } catch (e) {}
+        initializeSelectionMap(center);
+        setStatus('Cliquez sur la carte pour choisir un lieu.', false);
+        const onClick = (e) => {
+            if (confirm("Voulez-vous lancer l'analyse sur ce lieu ?")) {
+                map.off('click', onClick);
+                runAnalysis({ latitude: e.latlng.lat, longitude: e.latlng.lng });
+            }
+        };
+        map.on('click', onClick);
+    };
+
     const switchTab = (tab) => {
         if (tab === 'analysis') {
             analysisTab.style.display = 'block';
@@ -451,6 +489,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     switchTab('analysis');
     searchAddressBtn.addEventListener('click', handleAddressSearch);
     useGeolocationBtn.addEventListener('click', handleGeolocationSearch);
+    selectOnMapBtn.addEventListener('click', startMapSelection);
     addressInput.addEventListener('keypress', (e) => e.key === 'Enter' && handleAddressSearch());
     analysisTabBtn.addEventListener('click', () => switchTab('analysis'));
     observationsTabBtn.addEventListener('click', () => switchTab('observations'));
