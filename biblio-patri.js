@@ -33,6 +33,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     let patrimonialLayerGroup = L.layerGroup();
     let obsMap = null;
     let observationsLayerGroup = L.layerGroup();
+    let speciesColorMap = new Map();
+    let allPatrimonialLocations = null;
+    let allPatrimonialSpecies = [];
+    let selectedSpecies = new Set();
     let rulesByTaxonIndex = new Map();
     const SEARCH_RADIUS_KM = 2;
     const OBS_RADIUS_KM = 0.2;
@@ -184,14 +188,32 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             }
         });
+        allPatrimonialLocations = locations;
+        allPatrimonialSpecies = speciesNames;
+        speciesColorMap = new Map();
+        speciesNames.forEach((name, idx) => {
+            speciesColorMap.set(name, SPECIES_COLORS[idx % SPECIES_COLORS.length]);
+        });
+        if (selectedSpecies.size === 0) {
+            selectedSpecies = new Set(allPatrimonialSpecies);
+        }
+        renderPatrimonialLocations();
+    };
+
+    const renderPatrimonialLocations = () => {
+        if (!allPatrimonialLocations) return;
         patrimonialLayerGroup.clearLayers();
         const features = [];
-        for (const location of locations.values()) {
-            const count = location.speciesList.length;
-            const iconHtml = `<div class="marker-cluster-icon" style="background-color: ${count > 1 ? '#c62828' : location.speciesList[0].color};"><span>${count}</span></div>`;
+        let pointCount = 0;
+        for (const location of allPatrimonialLocations.values()) {
+            const filtered = location.speciesList.filter(s => selectedSpecies.has(s.name));
+            if (filtered.length === 0) continue;
+            pointCount++;
+            const count = filtered.length;
+            const iconHtml = `<div class="marker-cluster-icon" style="background-color: ${count > 1 ? '#c62828' : filtered[0].color};"><span>${count}</span></div>`;
             const icon = L.divIcon({ html: iconHtml, className: 'custom-cluster', iconSize: [28, 28], iconAnchor: [14, 14] });
             let popupContent = `<div class="custom-popup"><b>${count} espèce(s) patrimoniale(s) :</b><ul>`;
-            location.speciesList.forEach(s => {
+            filtered.forEach(s => {
                 popupContent += `<li><span class="legend-color" style="background-color:${s.color};"></span><i>${s.name}</i></li>`;
             });
             popupContent += '</ul></div>';
@@ -201,7 +223,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const coords2154 = proj4('EPSG:4326', 'EPSG:2154', [location.lon, location.lat]);
                 features.push({
                     type: 'Feature',
-                    properties: { species: location.speciesList.map(s => s.name).join('; ') },
+                    properties: { species: filtered.map(s => s.name).join('; ') },
                     geometry: { type: 'Point', coordinates: coords2154 }
                 });
             }
@@ -216,7 +238,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if(!map.hasLayer(patrimonialLayerGroup)) {
             patrimonialLayerGroup.addTo(map);
         }
-        setStatus(`${speciesNames.length} espèce(s) patrimoniale(s) cartographiée(s) sur ${locations.size} points.`, false);
+        setStatus(`${selectedSpecies.size} espèce(s) patrimoniale(s) cartographiée(s) sur ${pointCount} points.`, false);
     };
 
     const displayResults = (occurrences, patrimonialMap, wkt) => {
@@ -231,15 +253,63 @@ document.addEventListener('DOMContentLoaded', async () => {
         Object.keys(patrimonialMap).sort().forEach((speciesName, index) => {
             const color = SPECIES_COLORS[index % SPECIES_COLORS.length];
             const row = tableBody.insertRow();
-            const statusCellContent = Array.isArray(patrimonialMap[speciesName]) 
+            row.dataset.species = speciesName;
+            const statusCellContent = Array.isArray(patrimonialMap[speciesName])
                 ? '<ul>' + patrimonialMap[speciesName].map(s => `<li>${s}</li>`).join('') + '</ul>'
                 : patrimonialMap[speciesName];
-            row.innerHTML = `<td><span class="legend-color" style="background-color:${color};"></span><i>${speciesName}</i></td><td>${statusCellContent}</td>`;
+            row.innerHTML = `<td><input type="checkbox" class="species-toggle" data-species="${speciesName}" checked></td><td><span class="legend-color" style="background-color:${color};"></span><i>${speciesName}</i></td><td>${statusCellContent}</td>`;
         });
+
+        const selectAllBtn = document.createElement('button');
+        selectAllBtn.id = 'toggle-all-btn';
+        selectAllBtn.className = 'action-button';
+        selectAllBtn.textContent = 'Tout désélectionner';
+        resultsContainer.appendChild(selectAllBtn);
+
         const table = document.createElement('table');
-        table.innerHTML = `<thead><tr><th>Nom scientifique</th><th>Statut de patrimonialité</th></tr></thead>`;
+        table.innerHTML = `<thead><tr><th></th><th>Nom scientifique</th><th>Statut de patrimonialité</th></tr></thead>`;
         table.appendChild(tableBody);
         resultsContainer.appendChild(table);
+
+        const updateSelectAllButton = () => {
+            selectAllBtn.textContent = selectedSpecies.size === allPatrimonialSpecies.length ? 'Tout désélectionner' : 'Tout sélectionner';
+        };
+
+        table.querySelectorAll('.species-toggle').forEach(cb => {
+            cb.addEventListener('change', () => {
+                const sp = cb.dataset.species;
+                if (cb.checked) selectedSpecies.add(sp); else selectedSpecies.delete(sp);
+                updateSelectAllButton();
+                renderPatrimonialLocations();
+            });
+        });
+
+        table.querySelectorAll('tbody tr').forEach(tr => {
+            tr.addEventListener('click', (e) => {
+                if (e.target.tagName.toLowerCase() === 'input') return;
+                const sp = tr.dataset.species;
+                selectedSpecies = new Set([sp]);
+                table.querySelectorAll('.species-toggle').forEach(cb => {
+                    cb.checked = cb.dataset.species === sp;
+                });
+                updateSelectAllButton();
+                renderPatrimonialLocations();
+            });
+        });
+
+        selectAllBtn.addEventListener('click', () => {
+            const allSelected = selectedSpecies.size === allPatrimonialSpecies.length;
+            if (allSelected) selectedSpecies.clear();
+            else selectedSpecies = new Set(allPatrimonialSpecies);
+            table.querySelectorAll('.species-toggle').forEach(cb => {
+                cb.checked = selectedSpecies.has(cb.dataset.species);
+            });
+            updateSelectAllButton();
+            renderPatrimonialLocations();
+        });
+
+        selectedSpecies = new Set(Object.keys(patrimonialMap));
+        updateSelectAllButton();
         fetchAndDisplayAllPatrimonialOccurrences(patrimonialMap, wkt, occurrences);
     };
 
