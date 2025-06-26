@@ -17,24 +17,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     const addressInput = document.getElementById('address-input');
     const searchAddressBtn = document.getElementById('search-address-btn');
     const useGeolocationBtn = document.getElementById('use-geolocation-btn');
+    const selectOnMapBtn = document.getElementById('select-on-map-btn');
+    const drawPolygonBtn = document.getElementById('draw-polygon-btn');
     const analysisTabBtn = document.getElementById('analysis-tab-btn');
     const observationsTabBtn = document.getElementById('observations-tab-btn');
     const analysisTab = document.getElementById('analysis-tab');
     const observationsTab = document.getElementById('observations-tab');
     const obsStatusDiv = document.getElementById('obs-status');
     const obsMapContainer = document.getElementById('observations-map');
+    const obsGeolocBtn = document.getElementById('obs-geoloc-btn');
+    const obsDrawPolygonBtn = document.getElementById('obs-draw-polygon-btn');
     const downloadShapefileBtn = document.getElementById('download-shapefile-btn');
     const downloadContainer = document.getElementById('download-container');
 
     let currentShapefileData = null;
 
     let map = null;
+    let searchAreaLayer = null;
     let patrimonialLayerGroup = L.layerGroup();
     let obsMap = null;
+    let obsSearchPolygon = null;
     let observationsLayerGroup = L.layerGroup();
+    let speciesColorMap = new Map();
+    let allPatrimonialLocations = null;
+    let allPatrimonialSpecies = [];
+    let selectedSpecies = new Set();
     let rulesByTaxonIndex = new Map();
     const SEARCH_RADIUS_KM = 2;
-    const OBS_RADIUS_KM = 0.2;
+    const OBS_RADIUS_KM = 1;
     const TRACHEOPHYTA_TAXON_KEY = 7707728; // GBIF taxonKey for vascular plants
     const SPECIES_COLORS = ['#E6194B', '#3CB44B', '#FFE119', '#4363D8', '#F58231', '#911EB4', '#46F0F0', '#F032E6', '#BCF60C', '#FABEBE', '#800000', '#AA6E28', '#000075', '#A9A9A9'];
     const nonPatrimonialLabels = new Set(["Liste des espèces végétales sauvages pouvant faire l'objet d'une réglementation préfectorale dans les départements d'outre-mer : Article 1"]);
@@ -89,7 +99,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     // --- *** MODIFICATION MAJEURE : Ajout du contrôle des couches *** ---
-    const initializeMap = (coords) => {
+    const initializeMap = (params) => {
         if (map) {
             map.remove();
         }
@@ -99,23 +109,28 @@ document.addEventListener('DOMContentLoaded', async () => {
             attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)'
         });
     
-        const satelliteMap = L.tileLayer('https://wxs.ign.fr/essentiels/geoportail/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
-            attribution: '&copy; <a href="https://www.ign.fr/">IGN</a>',
-            maxZoom: 19
-        });
+        const satelliteMap = L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            {
+                attribution:
+                    'Tiles © Esri — Source: Esri, Earthstar Geographics, and the GIS User Community',
+                maxZoom: 19,
+                crossOrigin: true
+            }
+        );
     
         // 2. Création de la carte avec une couche par défaut
         mapContainer.style.display = 'block';
         map = L.map(mapContainer, {
-            center: [coords.latitude, coords.longitude],
+            center: [params.latitude, params.longitude],
             zoom: 13,
-            layers: [topoMap] // La carte topographique est affichée par défaut
+            layers: [topoMap]
         });
     
         // 3. Définition des objets pour le contrôle des couches
         const baseMaps = {
             "Topographique": topoMap,
-            "Satellite (IGN)": satelliteMap
+            "Satellite": satelliteMap
         };
     
         const overlayMaps = {
@@ -124,15 +139,55 @@ document.addEventListener('DOMContentLoaded', async () => {
     
         // 4. Ajout du contrôle à la carte
         L.control.layers(baseMaps, overlayMaps).addTo(map);
-        
-        // 5. Ajout du cercle de recherche
-        L.circle([coords.latitude, coords.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
+
+        if (searchAreaLayer) {
+            map.removeLayer(searchAreaLayer);
+            searchAreaLayer = null;
+        }
+        if (params.polygon) {
+            searchAreaLayer = L.polygon(params.polygon, { color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
+        } else {
+            searchAreaLayer = L.circle([params.latitude, params.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
+        }
+    };
+
+const initializeSelectionMap = (coords) => {
+        if (map) { map.remove(); }
+        const topoMap = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+            attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)'
+        });
+        const satelliteMap = L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            {
+                attribution: 'Tiles © Esri — Source: Esri, Earthstar Geographics, and the GIS User Community',
+                maxZoom: 19,
+                crossOrigin: true
+            }
+        );
+        mapContainer.style.display = 'block';
+        map = L.map(mapContainer, { center: [coords.latitude, coords.longitude], zoom: 6, layers: [topoMap] });
+        L.control.layers({ "Topographique": topoMap, "Satellite": satelliteMap }).addTo(map);
+};
+
+    const polygonToWkt = (latlngs) => {
+        const pts = latlngs.slice();
+        if (pts[0].lat !== pts[pts.length-1].lat || pts[0].lng !== pts[pts.length-1].lng) {
+            pts.push(pts[0]);
+        }
+        return `POLYGON((${pts.map(p => `${p.lng.toFixed(5)} ${p.lat.toFixed(5)}`).join(', ')}))`;
+    };
+
+    const centroidOf = (latlngs) => {
+        let lat = 0, lng = 0;
+        latlngs.forEach(p => { lat += p.lat; lng += p.lng; });
+        const n = latlngs.length;
+        return { latitude: lat/n, longitude: lng/n };
     };
    
     const fetchAndDisplayAllPatrimonialOccurrences = async (patrimonialMap, wkt, initialOccurrences) => {
         const speciesNames = Object.keys(patrimonialMap);
         if (speciesNames.length === 0) return;
-        setStatus("Étape 3/3: Cartographie détaillée des espèces patrimoniales...", true);
+        setStatus(`Étape 4/4: Cartographie détaillée des espèces patrimoniales... (0/${speciesNames.length})`, true);
         let allOccurrencesWithContext = [];
         const taxonKeyMap = new Map();
         initialOccurrences.forEach(occ => {
@@ -141,6 +196,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
         for (const [index, speciesName] of speciesNames.entries()) {
+            setStatus(`Étape 4/4: Cartographie détaillée des espèces patrimoniales... (${index + 1}/${speciesNames.length})`, true);
             const taxonKey = taxonKeyMap.get(speciesName);
             if (!taxonKey) continue;
             const color = SPECIES_COLORS[index % SPECIES_COLORS.length];
@@ -177,24 +233,45 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             }
         });
+        allPatrimonialLocations = locations;
+        allPatrimonialSpecies = speciesNames;
+        speciesColorMap = new Map();
+        speciesNames.forEach((name, idx) => {
+            speciesColorMap.set(name, SPECIES_COLORS[idx % SPECIES_COLORS.length]);
+        });
+        if (selectedSpecies.size === 0) {
+            selectedSpecies = new Set(allPatrimonialSpecies);
+        }
+        renderPatrimonialLocations();
+    };
+
+    const renderPatrimonialLocations = () => {
+        if (!allPatrimonialLocations) return;
         patrimonialLayerGroup.clearLayers();
         const features = [];
-        for (const location of locations.values()) {
-            const count = location.speciesList.length;
-            const iconHtml = `<div class="marker-cluster-icon" style="background-color: ${count > 1 ? '#c62828' : location.speciesList[0].color};"><span>${count}</span></div>`;
+        let pointCount = 0;
+        for (const location of allPatrimonialLocations.values()) {
+            const filtered = location.speciesList.filter(s => selectedSpecies.has(s.name));
+            if (filtered.length === 0) continue;
+            pointCount++;
+            const count = filtered.length;
+            const iconHtml = `<div class="marker-cluster-icon" style="background-color: ${count > 1 ? '#c62828' : filtered[0].color};"><span>${count}</span></div>`;
             const icon = L.divIcon({ html: iconHtml, className: 'custom-cluster', iconSize: [28, 28], iconAnchor: [14, 14] });
             let popupContent = `<div class="custom-popup"><b>${count} espèce(s) patrimoniale(s) :</b><ul>`;
-            location.speciesList.forEach(s => {
+            filtered.forEach(s => {
                 popupContent += `<li><span class="legend-color" style="background-color:${s.color};"></span><i>${s.name}</i></li>`;
             });
             popupContent += '</ul></div>';
-            const marker = L.marker([location.lat, location.lon], { icon }).bindPopup(popupContent);
+            const tooltipHtml = `<i>${filtered.map(s => s.name).join('<br>')}</i>`;
+            const marker = L.marker([location.lat, location.lon], { icon })
+                .bindPopup(popupContent)
+                .bindTooltip(tooltipHtml, { permanent: true, direction: 'right', offset: [8, 0] });
             patrimonialLayerGroup.addLayer(marker);
             if (typeof proj4 !== 'undefined') {
                 const coords2154 = proj4('EPSG:4326', 'EPSG:2154', [location.lon, location.lat]);
                 features.push({
                     type: 'Feature',
-                    properties: { species: location.speciesList.map(s => s.name).join('; ') },
+                    properties: { species: filtered.map(s => s.name).join('; ') },
                     geometry: { type: 'Point', coordinates: coords2154 }
                 });
             }
@@ -209,7 +286,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if(!map.hasLayer(patrimonialLayerGroup)) {
             patrimonialLayerGroup.addTo(map);
         }
-        setStatus(`${speciesNames.length} espèce(s) patrimoniale(s) cartographiée(s) sur ${locations.size} points.`, false);
+        setStatus(`${selectedSpecies.size} espèce(s) patrimoniale(s) cartographiée(s) sur ${pointCount} points.`, false);
     };
 
     const displayResults = (occurrences, patrimonialMap, wkt) => {
@@ -219,36 +296,88 @@ document.addEventListener('DOMContentLoaded', async () => {
             setStatus(`Aucune occurrence d'espèce patrimoniale trouvée dans ce rayon de ${SEARCH_RADIUS_KM} km.`);
             return;
         }
-        setStatus(`${Object.keys(patrimonialMap).length} espèce(s) patrimoniale(s) trouvée(s). Lancement de la cartographie détaillée...`);
+        setStatus(`${Object.keys(patrimonialMap).length} espèce(s) patrimoniale(s) trouvée(s). Lancement de l'étape 4/4 : cartographie détaillée...`);
         const tableBody = document.createElement('tbody');
         Object.keys(patrimonialMap).sort().forEach((speciesName, index) => {
             const color = SPECIES_COLORS[index % SPECIES_COLORS.length];
             const row = tableBody.insertRow();
-            const statusCellContent = Array.isArray(patrimonialMap[speciesName]) 
+            row.dataset.species = speciesName;
+            const statusCellContent = Array.isArray(patrimonialMap[speciesName])
                 ? '<ul>' + patrimonialMap[speciesName].map(s => `<li>${s}</li>`).join('') + '</ul>'
                 : patrimonialMap[speciesName];
-            row.innerHTML = `<td><span class="legend-color" style="background-color:${color};"></span><i>${speciesName}</i></td><td>${statusCellContent}</td>`;
+            row.innerHTML = `<td><input type="checkbox" class="species-toggle" data-species="${speciesName}" checked></td><td><span class="legend-color" style="background-color:${color};"></span><i>${speciesName}</i></td><td>${statusCellContent}</td>`;
         });
+
+        const selectAllBtn = document.createElement('button');
+        selectAllBtn.id = 'toggle-all-btn';
+        selectAllBtn.className = 'action-button';
+        selectAllBtn.textContent = 'Tout désélectionner';
+        resultsContainer.appendChild(selectAllBtn);
+
         const table = document.createElement('table');
-        table.innerHTML = `<thead><tr><th>Nom scientifique</th><th>Statut de patrimonialité</th></tr></thead>`;
+        table.innerHTML = `<thead><tr><th></th><th>Nom scientifique</th><th>Statut de patrimonialité</th></tr></thead>`;
         table.appendChild(tableBody);
         resultsContainer.appendChild(table);
+
+        const updateSelectAllButton = () => {
+            selectAllBtn.textContent = selectedSpecies.size === allPatrimonialSpecies.length ? 'Tout désélectionner' : 'Tout sélectionner';
+        };
+
+        table.querySelectorAll('.species-toggle').forEach(cb => {
+            cb.addEventListener('change', () => {
+                const sp = cb.dataset.species;
+                if (cb.checked) selectedSpecies.add(sp); else selectedSpecies.delete(sp);
+                updateSelectAllButton();
+                renderPatrimonialLocations();
+            });
+        });
+
+        table.querySelectorAll('tbody tr').forEach(tr => {
+            tr.addEventListener('click', (e) => {
+                if (e.target.tagName.toLowerCase() === 'input') return;
+                const sp = tr.dataset.species;
+                selectedSpecies = new Set([sp]);
+                table.querySelectorAll('.species-toggle').forEach(cb => {
+                    cb.checked = cb.dataset.species === sp;
+                });
+                updateSelectAllButton();
+                renderPatrimonialLocations();
+            });
+        });
+
+        selectAllBtn.addEventListener('click', () => {
+            const allSelected = selectedSpecies.size === allPatrimonialSpecies.length;
+            if (allSelected) selectedSpecies.clear();
+            else selectedSpecies = new Set(allPatrimonialSpecies);
+            table.querySelectorAll('.species-toggle').forEach(cb => {
+                cb.checked = selectedSpecies.has(cb.dataset.species);
+            });
+            updateSelectAllButton();
+            renderPatrimonialLocations();
+        });
+
+        selectedSpecies = new Set(Object.keys(patrimonialMap));
+        updateSelectAllButton();
         fetchAndDisplayAllPatrimonialOccurrences(patrimonialMap, wkt, occurrences);
     };
 
-    const runAnalysis = async (coords) => {
+    const runAnalysis = async (params) => {
         try {
             resultsContainer.innerHTML = '';
             mapContainer.style.display = 'none';
-            initializeMap(coords);
-            setStatus("Étape 1/2: Inventaire de la flore locale via GBIF...", true);
-            const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
+            initializeMap(params);
+            setStatus("Étape 1/4: Initialisation de la carte...", true);
+            let wkt = params.wkt;
+            if (!wkt) {
+                wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(params.latitude*Math.PI/180);return`${(params.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(params.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
+            }
             let allOccurrences = [];
             const maxPages = 12;
             const limit = 1000;
+            setStatus(`Étape 2/4: Inventaire de la flore locale via GBIF... (Page 0/${maxPages})`, true);
             for (let page = 0; page < maxPages; page++) {
                 const offset = page * limit;
-                setStatus(`Étape 1/2: Inventaire de la flore locale via GBIF... (Page ${page + 1}/${maxPages})`, true);
+                setStatus(`Étape 2/4: Inventaire de la flore locale via GBIF... (Page ${page + 1}/${maxPages})`, true);
                 const gbifUrl = `https://api.gbif.org/v1/occurrence/search?limit=${limit}&offset=${offset}&geometry=${encodeURIComponent(wkt)}&kingdomKey=6`;
                 const gbifResp = await fetch(gbifUrl);
                 if (!gbifResp.ok) throw new Error("L'API GBIF est indisponible.");
@@ -257,10 +386,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (pageData.endOfRecords) { break; }
             }
             if (allOccurrences.length === 0) { throw new Error("Aucune occurrence de plante trouvée à proximité."); }
-            setStatus("Étape 2/2: Analyse des données...", true);
+            setStatus("Étape 3/4: Analyse des données...", true);
             const uniqueSpeciesNames = [...new Set(allOccurrences.map(o => o.species).filter(Boolean))];
             const relevantRules = new Map();
-            const { departement, region } = (await (await fetch(`https://geo.api.gouv.fr/communes?lat=${coords.latitude}&lon=${coords.longitude}&fields=departement,region`)).json())[0];
+            const { departement, region } = (await (await fetch(`https://geo.api.gouv.fr/communes?lat=${params.latitude}&lon=${params.longitude}&fields=departement,region`)).json())[0];
             for (const speciesName of uniqueSpeciesNames) {
                 const rulesForThisTaxon = rulesByTaxonIndex.get(speciesName);
                 if (rulesForThisTaxon) {
@@ -286,9 +415,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             const analysisResp = await fetch('/.netlify/functions/analyze-patrimonial-status', {
                 method: 'POST',
                 body: JSON.stringify({ 
-                    relevantRules: Array.from(relevantRules.values()), 
-                    uniqueSpeciesNames, 
-                    coords 
+                    relevantRules: Array.from(relevantRules.values()),
+                    uniqueSpeciesNames,
+                    coords: { latitude: params.latitude, longitude: params.longitude }
                 })
             });
             if (!analysisResp.ok) { const errBody = await analysisResp.text(); throw new Error(`Le service d'analyse a échoué: ${errBody}`); }
@@ -322,6 +451,45 @@ document.addEventListener('DOMContentLoaded', async () => {
         } catch(error) { setStatus(`Erreur de géolocalisation : ${error.message}`); }
     };
 
+    const startMapSelection = async () => {
+        resultsContainer.innerHTML = '';
+        downloadContainer.style.display = 'none';
+        let center = { latitude: 46.5, longitude: 2 };
+        try {
+            const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 }));
+            center = { latitude: coords.latitude, longitude: coords.longitude };
+        } catch (e) {}
+        initializeSelectionMap(center);
+        setStatus('Cliquez sur la carte pour choisir un lieu.', false);
+        const onClick = (e) => {
+            if (confirm("Voulez-vous lancer l'analyse sur ce lieu ?")) {
+                map.off('click', onClick);
+                runAnalysis({ latitude: e.latlng.lat, longitude: e.latlng.lng });
+            }
+        };
+        map.on('click', onClick);
+    };
+
+    const startPolygonSelection = async () => {
+        resultsContainer.innerHTML = '';
+        downloadContainer.style.display = 'none';
+        let center = { latitude: 46.5, longitude: 2 };
+        try {
+            const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 }));
+            center = { latitude: coords.latitude, longitude: coords.longitude };
+        } catch (e) {}
+        initializeSelectionMap(center);
+        setStatus('Tracez un polygone pour définir la zone de recherche.', false);
+        const drawer = new L.Draw.Polygon(map, { shapeOptions: { color: '#c62828' } });
+        drawer.enable();
+        map.once(L.Draw.Event.CREATED, (e) => {
+            const latlngs = e.layer.getLatLngs()[0];
+            const centroid = centroidOf(latlngs);
+            const wkt = polygonToWkt(latlngs);
+            runAnalysis({ latitude: centroid.latitude, longitude: centroid.longitude, wkt, polygon: latlngs });
+        });
+    };
+
     const switchTab = (tab) => {
         if (tab === 'analysis') {
             analysisTab.style.display = 'block';
@@ -333,29 +501,37 @@ document.addEventListener('DOMContentLoaded', async () => {
             observationsTab.style.display = 'block';
             analysisTabBtn.classList.remove('active');
             observationsTabBtn.classList.add('active');
-            loadObservations();
+            initializeObservationMap();
+            obsStatusDiv.textContent = "Double-cliquez sur la carte ou faites un long appui pour choisir un endroit, ou utilisez la géolocalisation.";
         }
     };
 
-    const initializeObservationMap = (coords) => {
-        if (obsMap) obsMap.remove();
+    let obsSearchCircle = null;
+
+    const initializeObservationMap = () => {
+        if (obsMap) return;
         obsMapContainer.style.display = 'block';
         const planMap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors'
         });
 
-        const satelliteMap = L.tileLayer('https://wxs.ign.fr/essentiels/geoportail/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}', {
-            attribution: '&copy; <a href="https://www.ign.fr/">IGN</a>',
-            maxZoom: 19
-        });
+        const satelliteMap = L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            {
+                attribution:
+                    'Tiles © Esri — Source: Esri, Earthstar Geographics, and the GIS User Community',
+                maxZoom: 19,
+                crossOrigin: true
+            }
+        );
 
-        obsMap = L.map(obsMapContainer, { center: [coords.latitude, coords.longitude], zoom: 18, layers: [planMap] });
+        obsMap = L.map(obsMapContainer, { center: [46.5, 2], zoom: 6, layers: [planMap] });
 
         observationsLayerGroup = L.layerGroup().addTo(obsMap);
 
         const baseMaps = {
             "Plan": planMap,
-            "Satellite (IGN)": satelliteMap
+            "Satellite": satelliteMap
         };
 
         const overlayMaps = {
@@ -364,7 +540,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         L.control.layers(baseMaps, overlayMaps).addTo(obsMap);
 
-        L.circle([coords.latitude, coords.longitude], { radius: OBS_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(obsMap);
+        let pressTimer;
+        const handleSelect = (latlng) => loadObservationsAt({ latitude: latlng.lat, longitude: latlng.lng });
+        obsMap.on('dblclick', (e) => handleSelect(e.latlng));
+        obsMap.on('mousedown touchstart', (e) => {
+            pressTimer = setTimeout(() => handleSelect(e.latlng), 600);
+        });
+        obsMap.on('mouseup touchend', () => clearTimeout(pressTimer));
     };
 
     const displayObservations = (occurrences) => {
@@ -394,14 +576,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
-    const loadObservations = async () => {
+    const loadObservationsAt = async (params) => {
         try {
-            obsStatusDiv.textContent = 'Récupération de votre position...';
-            obsMapContainer.style.display = 'none';
-            const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 }));
-            initializeObservationMap(coords);
+            if (!obsMap) initializeObservationMap();
+            obsMapContainer.style.display = 'block';
+            obsMap.setView([params.latitude, params.longitude], 18);
+            if (obsSearchCircle) { obsMap.removeLayer(obsSearchCircle); obsSearchCircle = null; }
+            if (obsSearchPolygon) { obsMap.removeLayer(obsSearchPolygon); obsSearchPolygon = null; }
+            let wkt;
+            if (params.wkt) {
+                obsSearchPolygon = L.polygon(params.polygon, { color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(obsMap);
+                wkt = params.wkt;
+            } else {
+                obsSearchCircle = L.circle([params.latitude, params.longitude], { radius: OBS_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(obsMap);
+                wkt = 'POLYGON((' + Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(params.latitude*Math.PI/180);return `${(params.longitude+OBS_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(params.latitude+OBS_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`;}).join(', ') + '))';
+            }
             obsStatusDiv.textContent = 'Recherche des occurrences GBIF...';
-            const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+OBS_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+OBS_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
             const url = `https://api.gbif.org/v1/occurrence/search?limit=300&geometry=${encodeURIComponent(wkt)}&taxonKey=${TRACHEOPHYTA_TAXON_KEY}`;
             const resp = await fetch(url);
             if (!resp.ok) throw new Error("L'API GBIF est indisponible.");
@@ -410,8 +600,30 @@ document.addEventListener('DOMContentLoaded', async () => {
             displayObservations(data.results);
         } catch(error) {
             obsStatusDiv.textContent = `Erreur : ${error.message}`;
-            obsMapContainer.style.display = 'none';
         }
+    };
+
+    const geolocateAndLoadObservations = async () => {
+        try {
+            obsStatusDiv.textContent = 'Récupération de votre position...';
+            const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 }));
+            loadObservationsAt(coords);
+        } catch(error) {
+            obsStatusDiv.textContent = `Erreur : ${error.message}`;
+        }
+    };
+
+    const startObsPolygonSelection = async () => {
+        obsStatusDiv.textContent = '';
+        if (!obsMap) initializeObservationMap();
+        const drawer = new L.Draw.Polygon(obsMap, { shapeOptions: { color: '#c62828' } });
+        drawer.enable();
+        obsMap.once(L.Draw.Event.CREATED, (e) => {
+            const latlngs = e.layer.getLatLngs()[0];
+            const centroid = centroidOf(latlngs);
+            const wkt = polygonToWkt(latlngs);
+            loadObservationsAt({ latitude: centroid.latitude, longitude: centroid.longitude, wkt, polygon: latlngs });
+        });
     };
     
     // --- 6. DÉMARRAGE DE L'APPLICATION ---
@@ -419,8 +631,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     switchTab('analysis');
     searchAddressBtn.addEventListener('click', handleAddressSearch);
     useGeolocationBtn.addEventListener('click', handleGeolocationSearch);
+    selectOnMapBtn.addEventListener('click', startMapSelection);
+    drawPolygonBtn.addEventListener('click', startPolygonSelection);
     addressInput.addEventListener('keypress', (e) => e.key === 'Enter' && handleAddressSearch());
     analysisTabBtn.addEventListener('click', () => switchTab('analysis'));
     observationsTabBtn.addEventListener('click', () => switchTab('observations'));
+    obsGeolocBtn.addEventListener('click', geolocateAndLoadObservations);
+    obsDrawPolygonBtn.addEventListener('click', startObsPolygonSelection);
     downloadShapefileBtn.addEventListener('click', downloadShapefile);
 });

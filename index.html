@@ -8,6 +8,8 @@
     <link rel="stylesheet" href="style.css"/>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"/>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
     
     <script src="lib/proj4.js"></script>
     <script src="lib/shpwrite.js"></script>
@@ -26,11 +28,16 @@
             <div class="search-controls">
                 <div class="search-group">
                     <input type="text" id="address-input" placeholder="Saisir une adresse, une ville, un lieu...">
-                    <button id="search-address-btn" class="action-button">Rechercher l'adresse</button>
+                    <button id="search-address-btn" class="action-button">🔍 Rechercher</button>
                 </div>
-                <div class="separator">ou</div>
                 <div class="search-group">
-                    <button id="use-geolocation-btn" class="action-button">Utiliser ma position actuelle</button>
+                    <button id="use-geolocation-btn" class="action-button">📍 Ma position</button>
+                </div>
+                <div class="search-group">
+                    <button id="select-on-map-btn" class="action-button">🗺️ Choisir sur la carte</button>
+                </div>
+                <div class="search-group">
+                    <button id="draw-polygon-btn" class="action-button">🔶 Zone personnalisée</button>
                 </div>
             </div>
 
@@ -39,15 +46,23 @@
             <div id="map" style="display: none;"></div>
 
             <div id="download-container" style="text-align:center; display:none; margin-bottom:1rem;">
-                <button id="download-shapefile-btn" class="action-button">Télécharger le shapefile</button>
+                <button id="download-shapefile-btn" class="action-button">⬇️ Shapefile</button>
             </div>
 
             <div id="results" class="results-container"></div>
         </div>
 
         <div id="observations-tab" class="tab-content" style="display:none;">
+            <div class="search-controls">
+                <div class="search-group">
+                    <button id="obs-geoloc-btn" class="action-button">📍 Ma position</button>
+                </div>
+                <div class="search-group">
+                    <button id="obs-draw-polygon-btn" class="action-button">🔶 Zone personnalisée</button>
+                </div>
+            </div>
             <div id="obs-status" class="status-container"></div>
-            <div id="observations-map" style="display:none;"></div>
+            <div id="observations-map"></div>
         </div>
     </div>
 </body>
