@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const useGeolocationBtn = document.getElementById('use-geolocation-btn');
     const selectOnMapBtn = document.getElementById('select-on-map-btn');
     const drawPolygonBtn = document.getElementById('draw-polygon-btn');
+    const toggleTrackingBtn = document.getElementById('toggle-tracking-btn');
     const analysisTabBtn = document.getElementById('analysis-tab-btn');
     const observationsTabBtn = document.getElementById('observations-tab-btn');
     const analysisTab = document.getElementById('analysis-tab');
@@ -27,8 +28,57 @@ document.addEventListener('DOMContentLoaded', async () => {
     const obsMapContainer = document.getElementById('observations-map');
     const obsGeolocBtn = document.getElementById('obs-geoloc-btn');
     const obsDrawPolygonBtn = document.getElementById('obs-draw-polygon-btn');
+    const obsToggleTrackingBtn = document.getElementById('obs-toggle-tracking-btn');
     const downloadShapefileBtn = document.getElementById('download-shapefile-btn');
     const downloadContainer = document.getElementById('download-container');
+
+    let trackingMap = null;
+    let trackingButton = null;
+
+    const stopLocationTracking = () => {
+        if (trackingWatchId !== null) {
+            navigator.geolocation.clearWatch(trackingWatchId);
+            trackingWatchId = null;
+        }
+        if (trackingMarker && trackingMap) {
+            trackingMap.removeLayer(trackingMarker);
+            trackingMarker = null;
+        }
+        trackingActive = false;
+        if (trackingButton) trackingButton.textContent = '⭐ Suivi de position';
+        trackingMap = null;
+        trackingButton = null;
+    };
+
+    const startLocationTracking = (mapInstance, buttonEl) => {
+        if (!mapInstance || trackingActive) return;
+        trackingMap = mapInstance;
+        trackingButton = buttonEl;
+        trackingWatchId = navigator.geolocation.watchPosition(
+            (pos) => {
+                const latlng = [pos.coords.latitude, pos.coords.longitude];
+                if (!trackingMarker) {
+                    const icon = L.divIcon({ html: '⭐', className: 'user-location-icon', iconSize: [20,20], iconAnchor: [10,10] });
+                    trackingMarker = L.marker(latlng, { icon }).addTo(trackingMap);
+                } else {
+                    trackingMarker.setLatLng(latlng);
+                }
+            },
+            () => {
+                if (typeof showNotification === 'function') {
+                    showNotification('Erreur de géolocalisation', 'error');
+                }
+                stopLocationTracking();
+            },
+            { enableHighAccuracy: true }
+        );
+        trackingActive = true;
+        if (trackingButton) trackingButton.textContent = '🛑 Arrêter suivi';
+    };
+
+    const toggleLocationTracking = (mapInstance, buttonEl) => {
+        if (trackingActive) stopLocationTracking(); else startLocationTracking(mapInstance, buttonEl);
+    };
 
     let currentShapefileData = null;
 
@@ -43,12 +93,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     let allPatrimonialSpecies = [];
     let selectedSpecies = new Set();
     let rulesByTaxonIndex = new Map();
+    let trackingWatchId = null;
+    let trackingMarker = null;
+    let trackingActive = false;
     const SEARCH_RADIUS_KM = 2;
     const OBS_RADIUS_KM = 1;
     const TRACHEOPHYTA_TAXON_KEY = 7707728; // GBIF taxonKey for vascular plants
     const SPECIES_COLORS = ['#E6194B', '#3CB44B', '#FFE119', '#4363D8', '#F58231', '#911EB4', '#46F0F0', '#F032E6', '#BCF60C', '#FABEBE', '#800000', '#AA6E28', '#000075', '#A9A9A9'];
     const nonPatrimonialLabels = new Set(["Liste des espèces végétales sauvages pouvant faire l'objet d'une réglementation préfectorale dans les départements d'outre-mer : Article 1"]);
     const nonPatrimonialRedlistCodes = new Set(['LC', 'DD', 'NA', 'NE']);
+    const HABITATS_DIRECTIVE_CODES = new Set(['CDH1', 'CDH2', 'CDH4', 'CDH5']);
     const OLD_REGIONS_TO_DEPARTMENTS = { 'Alsace': ['67', '68'], 'Aquitaine': ['24', '33', '40', '47', '64'], 'Auvergne': ['03', '15', '43', '63'], 'Basse-Normandie': ['14', '50', '61'], 'Bourgogne': ['21', '58', '71', '89'], 'Champagne-Ardenne': ['08', '10', '51', '52'], 'Franche-Comté': ['25', '39', '70', '90'], 'Haute-Normandie': ['27', '76'], 'Languedoc-Roussillon': ['11', '30', '34', '48', '66'], 'Limousin': ['19', '23', '87'], 'Lorraine': ['54', '55', '57', '88'], 'Midi-Pyrénées': ['09', '12', '31', '32', '46', '65', '81', '82'], 'Nord-Pas-de-Calais': ['59', '62'], 'Picardie': ['02', '60', '80'], 'Poitou-Charentes': ['16', '17', '79', '86'], 'Rhône-Alpes': ['01', '07', '26', '38', '42', '69', '73', '74'] };
     const ADMIN_NAME_TO_CODE_MAP = { "France": "FR", "Ain": "01", "Aisne": "02", "Allier": "03", "Alpes-de-Haute-Provence": "04", "Hautes-Alpes": "05", "Alpes-Maritimes": "06", "Ardèche": "07", "Ardennes": "08", "Ariège": "09", "Aube": "10", "Aude": "11", "Aveyron": "12", "Bouches-du-Rhône": "13", "Calvados": "14", "Cantal": "15", "Charente": "16", "Charente-Maritime": "17", "Cher": "18", "Corrèze": "19", "Corse-du-Sud": "2A", "Haute-Corse": "2B", "Côte-d'Or": "21", "Côtes-d'Armor": "22", "Creuse": "23", "Dordogne": "24", "Doubs": "25", "Drôme": "26", "Eure": "27", "Eure-et-Loir": "28", "Finistère": "29", "Gard": "30", "Haute-Garonne": "31", "Gers": "32", "Gironde": "33", "Hérault": "34", "Ille-et-Vilaine": "35", "Indre": "36", "Indre-et-Loire": "37", "Isère": "38", "Jura": "39", "Landes": "40", "Loir-et-Cher": "41", "Loire": "42", "Haute-Loire": "43", "Loire-Atlantique": "44", "Loiret": "45", "Lot": "46", "Lot-et-Garonne": "47", "Lozère": "48", "Maine-et-Loire": "49", "Manche": "50", "Marne": "51", "Haute-Marne": "52", "Mayenne": "53", "Meurthe-et-Moselle": "54", "Meuse": "55", "Morbihan": "56", "Moselle": "57", "Nièvre": "58", "Nord": "59", "Oise": "60", "Orne": "61", "Pas-de-Calais": "62", "Puy-de-Dôme": "63", "Pyrénées-Atlantiques": "64", "Hautes-Pyrénées": "65", "Pyrénées-Orientales": "66", "Bas-Rhin": "67", "Haut-Rhin": "68", "Rhône": "69", "Haute-Saône": "70", "Saône-et-Loire": "71", "Sarthe": "72", "Savoie": "73", "Haute-Savoie": "74", "Paris": "75", "Seine-Maritime": "76", "Seine-et-Marne": "77", "Yvelines": "78", "Deux-Sèvres": "79", "Somme": "80", "Tarn": "81", "Tarn-et-Garonne": "82", "Var": "83", "Vaucluse": "84", "Vendée": "85", "Vienne": "86", "Haute-Vienne": "87", "Vosges": "88", "Yonne": "89", "Territoire de Belfort": "90", "Essonne": "91", "Hauts-de-Seine": "92", "Seine-Saint-Denis": "93", "Val-de-Marne": "94", "Val-d'Oise": "95", "Auvergne-Rhône-Alpes": "84", "Bourgogne-Franche-Comté": "27", "Bretagne": "53", "Centre-Val de Loire": "24", "Corse": "94", "Grand Est": "44", "Hauts-de-France": "32", "Île-de-France": "11", "Normandie": "28", "Nouvelle-Aquitaine": "75", "Occitanie": "76", "Pays de la Loire": "52", "Provence-Alpes-Côte d'Azur": "93", "Guadeloupe": "01", "Martinique": "02", "Guyane": "03", "La Réunion": "04", "Mayotte": "06" };
 
@@ -100,6 +154,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // --- *** MODIFICATION MAJEURE : Ajout du contrôle des couches *** ---
     const initializeMap = (params) => {
+        stopLocationTracking();
         if (map) {
             map.remove();
         }
@@ -152,6 +207,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
 const initializeSelectionMap = (coords) => {
+        stopLocationTracking();
         if (map) { map.remove(); }
         const topoMap = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
             attribution: 'Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)'
@@ -165,7 +221,7 @@ const initializeSelectionMap = (coords) => {
             }
         );
         mapContainer.style.display = 'block';
-        map = L.map(mapContainer, { center: [coords.latitude, coords.longitude], zoom: 6, layers: [topoMap] });
+        map = L.map(mapContainer, { center: [coords.latitude, coords.longitude], zoom: 12, layers: [topoMap] });
         L.control.layers({ "Topographique": topoMap, "Satellite": satelliteMap }).addTo(map);
 };
 
@@ -396,9 +452,17 @@ const initializeSelectionMap = (coords) => {
                     for (const row of rulesForThisTaxon) {
                         let ruleApplies = false;
                         const type = row.type.toLowerCase();
-                        if (ADMIN_NAME_TO_CODE_MAP[row.adm] === 'FR' || type.includes('nationale')) { ruleApplies = true; } 
-                        else if (OLD_REGIONS_TO_DEPARTMENTS[row.adm]?.includes(departement.code)) { ruleApplies = true; } 
-                        else { const adminCode = ADMIN_NAME_TO_CODE_MAP[row.adm]; if (adminCode === departement.code || adminCode === region.code) { ruleApplies = true; } }
+                        const isHabitatsDirective = type.includes('directive habitat') && HABITATS_DIRECTIVE_CODES.has(row.code);
+                        if (isHabitatsDirective) {
+                            ruleApplies = true;
+                        } else if (ADMIN_NAME_TO_CODE_MAP[row.adm] === 'FR' || type.includes('nationale')) {
+                            ruleApplies = true;
+                        } else if (OLD_REGIONS_TO_DEPARTMENTS[row.adm]?.includes(departement.code)) {
+                            ruleApplies = true;
+                        } else {
+                            const adminCode = ADMIN_NAME_TO_CODE_MAP[row.adm];
+                            if (adminCode === departement.code || adminCode === region.code) { ruleApplies = true; }
+                        }
                         if (ruleApplies) {
                             if (nonPatrimonialLabels.has(row.label) || type.includes('déterminante znieff')) { continue; }
                             const isRedList = type.includes('liste rouge');
@@ -454,7 +518,7 @@ const initializeSelectionMap = (coords) => {
     const startMapSelection = async () => {
         resultsContainer.innerHTML = '';
         downloadContainer.style.display = 'none';
-        let center = { latitude: 46.5, longitude: 2 };
+        let center = { latitude: 45.1885, longitude: 5.7245 };
         try {
             const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 }));
             center = { latitude: coords.latitude, longitude: coords.longitude };
@@ -473,7 +537,7 @@ const initializeSelectionMap = (coords) => {
     const startPolygonSelection = async () => {
         resultsContainer.innerHTML = '';
         downloadContainer.style.display = 'none';
-        let center = { latitude: 46.5, longitude: 2 };
+        let center = { latitude: 45.1885, longitude: 5.7245 };
         try {
             const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 }));
             center = { latitude: coords.latitude, longitude: coords.longitude };
@@ -501,6 +565,7 @@ const initializeSelectionMap = (coords) => {
             observationsTab.style.display = 'block';
             analysisTabBtn.classList.remove('active');
             observationsTabBtn.classList.add('active');
+            stopLocationTracking();
             initializeObservationMap();
             obsStatusDiv.textContent = "Double-cliquez sur la carte ou faites un long appui pour choisir un endroit, ou utilisez la géolocalisation.";
         }
@@ -629,6 +694,7 @@ const initializeSelectionMap = (coords) => {
     // --- 6. DÉMARRAGE DE L'APPLICATION ---
     await initializeApp();
     switchTab('analysis');
+    startMapSelection();
     searchAddressBtn.addEventListener('click', handleAddressSearch);
     useGeolocationBtn.addEventListener('click', handleGeolocationSearch);
     selectOnMapBtn.addEventListener('click', startMapSelection);
@@ -639,4 +705,11 @@ const initializeSelectionMap = (coords) => {
     obsGeolocBtn.addEventListener('click', geolocateAndLoadObservations);
     obsDrawPolygonBtn.addEventListener('click', startObsPolygonSelection);
     downloadShapefileBtn.addEventListener('click', downloadShapefile);
+    toggleTrackingBtn.addEventListener('click', () => toggleLocationTracking(map, toggleTrackingBtn));
+    if (obsToggleTrackingBtn) {
+        obsToggleTrackingBtn.addEventListener('click', () => {
+            initializeObservationMap();
+            toggleLocationTracking(obsMap, obsToggleTrackingBtn);
+        });
+    }
 });

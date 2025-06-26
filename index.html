@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#c62828">
+    <meta name="mobile-web-app-capable" content="yes">
     <title>Analyse Patrimoniale de la Flore</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌿</text></svg>">
     <link rel="stylesheet" href="style.css"/>
@@ -39,11 +41,14 @@
                 <div class="search-group">
                     <button id="draw-polygon-btn" class="action-button">🔶 Zone personnalisée</button>
                 </div>
+                <div class="search-group">
+                    <button id="toggle-tracking-btn" class="action-button">⭐ Suivi de position</button>
+                </div>
             </div>
 
             <div id="status" class="status-container"></div>
 
-            <div id="map" style="display: none;"></div>
+            <div id="map"></div>
 
             <div id="download-container" style="text-align:center; display:none; margin-bottom:1rem;">
                 <button id="download-shapefile-btn" class="action-button">⬇️ Shapefile</button>
@@ -59,6 +64,9 @@
                 </div>
                 <div class="search-group">
                     <button id="obs-draw-polygon-btn" class="action-button">🔶 Zone personnalisée</button>
+                </div>
+                <div class="search-group">
+                    <button id="obs-toggle-tracking-btn" class="action-button">⭐ Suivi de position</button>
                 </div>
             </div>
             <div id="obs-status" class="status-container"></div>
