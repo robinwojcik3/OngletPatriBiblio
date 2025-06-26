@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const searchAddressBtn = document.getElementById('search-address-btn');
     const useGeolocationBtn = document.getElementById('use-geolocation-btn');
     const selectOnMapBtn = document.getElementById('select-on-map-btn');
+    const drawPolygonBtn = document.getElementById('draw-polygon-btn');
     const analysisTabBtn = document.getElementById('analysis-tab-btn');
     const observationsTabBtn = document.getElementById('observations-tab-btn');
     const analysisTab = document.getElementById('analysis-tab');
@@ -25,6 +26,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const obsStatusDiv = document.getElementById('obs-status');
     const obsMapContainer = document.getElementById('observations-map');
     const obsGeolocBtn = document.getElementById('obs-geoloc-btn');
+    const obsDrawPolygonBtn = document.getElementById('obs-draw-polygon-btn');
     const downloadShapefileBtn = document.getElementById('download-shapefile-btn');
     const downloadContainer = document.getElementById('download-container');
 
@@ -55,7 +57,47 @@ document.addEventListener('DOMContentLoaded', async () => {
             spinner.className = 'loading';
             statusDiv.appendChild(spinner);
         }
-        if (message) statusDiv.innerHTML += `<p>${message}</p>`;
+    if (message) statusDiv.innerHTML += `<p>${message}</p>`;
+    };
+
+    const circleToWkt = (coords, radiusKm) =>
+        `POLYGON((${Array.from({ length: 33 }, (_, i) => {
+            const a = (i * 2 * Math.PI) / 32;
+            const r = 111.32 * Math.cos(coords.latitude * Math.PI / 180);
+            const lng = coords.longitude + radiusKm / r * Math.cos(a);
+            const lat = coords.latitude + radiusKm / 111.132 * Math.sin(a);
+            return `${lng.toFixed(5)} ${lat.toFixed(5)}`;
+        }).join(', ')}))`;
+
+    const polygonToWkt = (pts) => {
+        if (!pts || pts.length < 3) return '';
+        const coords = pts.map(p => `${p.lng.toFixed(5)} ${p.lat.toFixed(5)}`);
+        coords.push(coords[0]);
+        return `POLYGON((${coords.join(', ')}))`;
+    };
+
+    const polygonCentroid = (pts) => {
+        let lat = 0, lng = 0;
+        pts.forEach(p => { lat += p.lat; lng += p.lng; });
+        return { latitude: lat / pts.length, longitude: lng / pts.length };
+    };
+
+    const enablePolygonDrawing = (targetMap, callback) => {
+        const points = [];
+        const temp = L.polyline([], { color: '#c62828' }).addTo(targetMap);
+        const addPoint = (e) => {
+            points.push(e.latlng);
+            temp.addLatLng(e.latlng);
+        };
+        const finish = () => {
+            targetMap.off('click', addPoint);
+            targetMap.off('dblclick', finish);
+            targetMap.removeLayer(temp);
+            if (points.length > 2) callback(points);
+            else if (typeof showNotification === 'function') showNotification('Polygone invalide', 'error');
+        };
+        targetMap.on('click', addPoint);
+        targetMap.on('dblclick', finish);
     };
     
     const indexRulesFromCSV = (csvText) => {
@@ -95,7 +137,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     // --- *** MODIFICATION MAJEURE : Ajout du contrôle des couches *** ---
-    const initializeMap = (coords) => {
+    const initializeMap = (coords, polygon) => {
         if (map) {
             map.remove();
         }
@@ -136,8 +178,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 4. Ajout du contrôle à la carte
         L.control.layers(baseMaps, overlayMaps).addTo(map);
 
-        // 5. Ajout du cercle de recherche
-        L.circle([coords.latitude, coords.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
+        if (polygon && polygon.length > 2) {
+            L.polygon(polygon, { color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
+        } else {
+            L.circle([coords.latitude, coords.longitude], { radius: SEARCH_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(map);
+        }
     };
 
     const initializeSelectionMap = (coords) => {
@@ -335,13 +380,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         fetchAndDisplayAllPatrimonialOccurrences(patrimonialMap, wkt, occurrences);
     };
 
-    const runAnalysis = async (coords) => {
+    const runAnalysis = async (input) => {
         try {
             resultsContainer.innerHTML = '';
             mapContainer.style.display = 'none';
-            initializeMap(coords);
+            let coords;
+            let wkt;
+            let polygon = null;
+            if (input && input.polygon) {
+                polygon = input.polygon;
+                coords = polygonCentroid(polygon);
+                initializeMap(coords, polygon);
+                wkt = polygonToWkt(polygon);
+            } else {
+                coords = input;
+                initializeMap(coords);
+                wkt = circleToWkt(coords, SEARCH_RADIUS_KM);
+            }
             setStatus("Étape 1/4: Initialisation de la carte...", true);
-            const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+SEARCH_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+SEARCH_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
             let allOccurrences = [];
             const maxPages = 12;
             const limit = 1000;
@@ -441,6 +497,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         map.on('click', onClick);
     };
 
+    const startPolygonSelection = async () => {
+        resultsContainer.innerHTML = '';
+        downloadContainer.style.display = 'none';
+        let center = { latitude: 46.5, longitude: 2 };
+        try {
+            const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 }));
+            center = { latitude: coords.latitude, longitude: coords.longitude };
+        } catch (e) {}
+        initializeSelectionMap(center);
+        setStatus('Cliquez pour dessiner le polygone puis double-cliquez pour lancer la recherche.', false);
+        enablePolygonDrawing(map, (pts) => runAnalysis({ polygon: pts }));
+    };
+
     const switchTab = (tab) => {
         if (tab === 'analysis') {
             analysisTab.style.display = 'block';
@@ -458,6 +527,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     let obsSearchCircle = null;
+    let obsSearchPolygon = null;
 
     const initializeObservationMap = () => {
         if (obsMap) return;
@@ -534,8 +604,30 @@ document.addEventListener('DOMContentLoaded', async () => {
             obsMap.setView([coords.latitude, coords.longitude], 18);
             if (obsSearchCircle) obsMap.removeLayer(obsSearchCircle);
             obsSearchCircle = L.circle([coords.latitude, coords.longitude], { radius: OBS_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(obsMap);
+            if (obsSearchPolygon) { obsMap.removeLayer(obsSearchPolygon); obsSearchPolygon = null; }
             obsStatusDiv.textContent = 'Recherche des occurrences GBIF...';
-            const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+OBS_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+OBS_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
+            const wkt = circleToWkt(coords, OBS_RADIUS_KM);
+            const url = `https://api.gbif.org/v1/occurrence/search?limit=300&geometry=${encodeURIComponent(wkt)}&taxonKey=${TRACHEOPHYTA_TAXON_KEY}`;
+            const resp = await fetch(url);
+            if (!resp.ok) throw new Error("L'API GBIF est indisponible.");
+            const data = await resp.json();
+            if (!data.results || data.results.length === 0) { obsStatusDiv.textContent = 'Aucune observation trouvée.'; return; }
+            displayObservations(data.results);
+        } catch(error) {
+            obsStatusDiv.textContent = `Erreur : ${error.message}`;
+        }
+    };
+
+    const loadObservationsInPolygon = async (pts) => {
+        try {
+            if (!obsMap) initializeObservationMap();
+            obsMapContainer.style.display = 'block';
+            obsMap.fitBounds(L.polygon(pts).getBounds());
+            if (obsSearchCircle) { obsMap.removeLayer(obsSearchCircle); obsSearchCircle = null; }
+            if (obsSearchPolygon) obsMap.removeLayer(obsSearchPolygon);
+            obsSearchPolygon = L.polygon(pts, { color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(obsMap);
+            obsStatusDiv.textContent = 'Recherche des occurrences GBIF...';
+            const wkt = polygonToWkt(pts);
             const url = `https://api.gbif.org/v1/occurrence/search?limit=300&geometry=${encodeURIComponent(wkt)}&taxonKey=${TRACHEOPHYTA_TAXON_KEY}`;
             const resp = await fetch(url);
             if (!resp.ok) throw new Error("L'API GBIF est indisponible.");
@@ -556,6 +648,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             obsStatusDiv.textContent = `Erreur : ${error.message}`;
         }
     };
+
+    const startObsPolygonSelection = async () => {
+        obsStatusDiv.textContent = 'Dessinez un polygone puis double-cliquez pour valider.';
+        if (!obsMap) initializeObservationMap();
+        obsMapContainer.style.display = 'block';
+        enablePolygonDrawing(obsMap, (pts) => loadObservationsInPolygon(pts));
+    };
     
     // --- 6. DÉMARRAGE DE L'APPLICATION ---
     await initializeApp();
@@ -567,5 +666,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     analysisTabBtn.addEventListener('click', () => switchTab('analysis'));
     observationsTabBtn.addEventListener('click', () => switchTab('observations'));
     obsGeolocBtn.addEventListener('click', geolocateAndLoadObservations);
+    drawPolygonBtn.addEventListener('click', startPolygonSelection);
+    obsDrawPolygonBtn.addEventListener('click', startObsPolygonSelection);
     downloadShapefileBtn.addEventListener('click', downloadShapefile);
 });
