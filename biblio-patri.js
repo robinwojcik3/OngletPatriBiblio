@@ -100,11 +100,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     
         const satelliteMap = L.tileLayer(
-            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
             {
-                attribution:
-                    'Tiles © Esri — Source: Esri, Earthstar Geographics, and the GIS User Community',
-                maxZoom: 19,
+                attribution: '© Google',
+                maxZoom: 20,
                 crossOrigin: true
             }
         );
@@ -350,11 +349,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
         const satelliteMap = L.tileLayer(
-            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
             {
-                attribution:
-                    'Tiles © Esri — Source: Esri, Earthstar Geographics, and the GIS User Community',
-                maxZoom: 19,
+                attribution: '© Google',
+                maxZoom: 20,
                 crossOrigin: true
             }
         );
