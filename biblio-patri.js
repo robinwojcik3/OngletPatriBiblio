@@ -12,6 +12,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const addressInput = document.getElementById('address-input');
     const searchAddressBtn = document.getElementById('search-address-btn');
     const useGeolocationBtn = document.getElementById('use-geolocation-btn');
+        const toggleLiveGeolocationBtn = document.createElement('button');
+        toggleLiveGeolocationBtn.id = 'toggle-live-geolocation-btn';
+        toggleLiveGeolocationBtn.className = 'action-button';
+        toggleLiveGeolocationBtn.textContent = 'Activer géolocalisation en direct';
+        useGeolocationBtn.parentNode.insertBefore(toggleLiveGeolocationBtn, useGeolocationBtn.nextSibling);
     const analysisTabBtn = document.getElementById('analysis-tab-btn');
     const observationsTabBtn = document.getElementById('observations-tab-btn');
     const analysisTab = document.getElementById('analysis-tab');
@@ -23,6 +28,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     let patrimonialLayerGroup = L.layerGroup();
     let obsMap = null;
     let observationsLayerGroup = L.layerGroup();
+    let userLocationMarker = null;
+    let geolocationWatchId = null;
     let rulesByTaxonIndex = new Map();
     const SEARCH_RADIUS_KM = 2;
     const OBS_RADIUS_KM = 0.2;
@@ -80,9 +87,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     // --- *** MODIFICATION MAJEURE : Ajout du contrôle des couches *** ---
+    const updateUserLocation = (position) => {
+        const lat = position.coords.latitude;
+        const lon = position.coords.longitude;
+        const accuracy = position.coords.accuracy;
+
+        if (userLocationMarker) {
+            userLocationMarker.setLatLng([lat, lon]);
+            userLocationMarker.setRadius(accuracy);
+        } else {
+            userLocationMarker = L.circle([lat, lon], { radius: accuracy, color: 'blue', fillOpacity: 0.2 }).addTo(map || obsMap);
+            L.circleMarker([lat, lon], { radius: 4, color: 'blue', fillOpacity: 1 }).addTo(map || obsMap)
+                .bindPopup(`Vous êtes ici (précision: ${accuracy.toFixed(0)}m)`).openPopup();
+        }
+        if (map) map.setView([lat, lon]);
+        if (obsMap) obsMap.setView([lat, lon]);
+    };
+
     const initializeMap = (coords) => {
         if (map) {
             map.remove();
+            if (geolocationWatchId) {
+                navigator.geolocation.clearWatch(geolocationWatchId);
+                geolocationWatchId = null;
+                userLocationMarker = null;
+            }
         }
     
         // 1. Définition des couches de base
@@ -311,7 +340,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     };
 
     const initializeObservationMap = (coords) => {
-        if (obsMap) obsMap.remove();
+        if (obsMap) {
+            obsMap.remove();
+            if (geolocationWatchId) {
+                navigator.geolocation.clearWatch(geolocationWatchId);
+                geolocationWatchId = null;
+                userLocationMarker = null;
+            }
+        }
         obsMapContainer.style.display = 'block';
         const planMap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors'
