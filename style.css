@@ -149,3 +149,13 @@ html[data-theme="dark"] tbody tr:hover { background-color: rgba(198,40,40,0.15);
   .search-controls { flex-direction: row; flex-wrap: wrap; align-items: center; }
   .main-content { padding: 2rem; }
 }
+
+@media (max-width: 599px) {
+  #map,
+  #observations-map {
+    margin-left: -2rem;
+    margin-right: -2rem;
+    width: calc(100% + 4rem);
+    border-radius: 0;
+  }
+}
