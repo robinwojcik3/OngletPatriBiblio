@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const observationsTab = document.getElementById('observations-tab');
     const obsStatusDiv = document.getElementById('obs-status');
     const obsMapContainer = document.getElementById('observations-map');
+    const downloadShapefileBtn = document.getElementById('download-shapefile-btn');
 
     let map = null;
     let patrimonialLayerGroup = L.layerGroup();
@@ -40,6 +41,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const OLD_REGIONS_TO_DEPARTMENTS = { 'Alsace': ['67', '68'], 'Aquitaine': ['24', '33', '40', '47', '64'], 'Auvergne': ['03', '15', '43', '63'], 'Basse-Normandie': ['14', '50', '61'], 'Bourgogne': ['21', '58', '71', '89'], 'Champagne-Ardenne': ['08', '10', '51', '52'], 'Franche-Comté': ['25', '39', '70', '90'], 'Haute-Normandie': ['27', '76'], 'Languedoc-Roussillon': ['11', '30', '34', '48', '66'], 'Limousin': ['19', '23', '87'], 'Lorraine': ['54', '55', '57', '88'], 'Midi-Pyrénées': ['09', '12', '31', '32', '46', '65', '81', '82'], 'Nord-Pas-de-Calais': ['59', '62'], 'Picardie': ['02', '60', '80'], 'Poitou-Charentes': ['16', '17', '79', '86'], 'Rhône-Alpes': ['01', '07', '26', '38', '42', '69', '73', '74'] };
     const ADMIN_NAME_TO_CODE_MAP = { "France": "FR", "Ain": "01", "Aisne": "02", "Allier": "03", "Alpes-de-Haute-Provence": "04", "Hautes-Alpes": "05", "Alpes-Maritimes": "06", "Ardèche": "07", "Ardennes": "08", "Ariège": "09", "Aube": "10", "Aude": "11", "Aveyron": "12", "Bouches-du-Rhône": "13", "Calvados": "14", "Cantal": "15", "Charente": "16", "Charente-Maritime": "17", "Cher": "18", "Corrèze": "19", "Corse-du-Sud": "2A", "Haute-Corse": "2B", "Côte-d'Or": "21", "Côtes-d'Armor": "22", "Creuse": "23", "Dordogne": "24", "Doubs": "25", "Drôme": "26", "Eure": "27", "Eure-et-Loir": "28", "Finistère": "29", "Gard": "30", "Haute-Garonne": "31", "Gers": "32", "Gironde": "33", "Hérault": "34", "Ille-et-Vilaine": "35", "Indre": "36", "Indre-et-Loire": "37", "Isère": "38", "Jura": "39", "Landes": "40", "Loir-et-Cher": "41", "Loire": "42", "Haute-Loire": "43", "Loire-Atlantique": "44", "Loiret": "45", "Lot": "46", "Lot-et-Garonne": "47", "Lozère": "48", "Maine-et-Loire": "49", "Manche": "50", "Marne": "51", "Haute-Marne": "52", "Mayenne": "53", "Meurthe-et-Moselle": "54", "Meuse": "55", "Morbihan": "56", "Moselle": "57", "Nièvre": "58", "Nord": "59", "Oise": "60", "Orne": "61", "Pas-de-Calais": "62", "Puy-de-Dôme": "63", "Pyrénées-Atlantiques": "64", "Hautes-Pyrénées": "65", "Pyrénées-Orientales": "66", "Bas-Rhin": "67", "Haut-Rhin": "68", "Rhône": "69", "Haute-Saône": "70", "Saône-et-Loire": "71", "Sarthe": "72", "Savoie": "73", "Haute-Savoie": "74", "Paris": "75", "Seine-Maritime": "76", "Seine-et-Marne": "77", "Yvelines": "78", "Deux-Sèvres": "79", "Somme": "80", "Tarn": "81", "Tarn-et-Garonne": "82", "Var": "83", "Vaucluse": "84", "Vendée": "85", "Vienne": "86", "Haute-Vienne": "87", "Vosges": "88", "Yonne": "89", "Territoire de Belfort": "90", "Essonne": "91", "Hauts-de-Seine": "92", "Seine-Saint-Denis": "93", "Val-de-Marne": "94", "Val-d'Oise": "95", "Auvergne-Rhône-Alpes": "84", "Bourgogne-Franche-Comté": "27", "Bretagne": "53", "Centre-Val de Loire": "24", "Corse": "94", "Grand Est": "44", "Hauts-de-France": "32", "Île-de-France": "11", "Normandie": "28", "Nouvelle-Aquitaine": "75", "Occitanie": "76", "Pays de la Loire": "52", "Provence-Alpes-Côte d'Azur": "93", "Guadeloupe": "01", "Martinique": "02", "Guyane": "03", "La Réunion": "04", "Mayotte": "06" };
 
+    const PROJ4_2154 = '+proj=lcc +lat_1=44 +lat_2=49 +lat_0=46.5 +lon_0=3 +x_0=700000 +y_0=6600000 +ellps=GRS80 +units=m +no_defs';
+    let lastLocations = null;
     const setStatus = (message, isLoading = false) => {
         statusDiv.innerHTML = '';
         if (isLoading) {
@@ -214,6 +217,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             patrimonialLayerGroup.addTo(map);
         }
         setStatus(`${speciesNames.length} espèce(s) patrimoniale(s) cartographiée(s) sur ${locations.size} points.`, false);
+        lastLocations = locations;
+        downloadShapefileBtn.style.display = 'inline-block';
     };
 
     const displayResults = (occurrences, patrimonialMap, wkt) => {
@@ -243,6 +248,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const runAnalysis = async (coords) => {
         try {
             resultsContainer.innerHTML = '';
+            downloadShapefileBtn.style.display = 'none';
+            lastLocations = null;
             mapContainer.style.display = 'none';
             initializeMap(coords);
             setStatus("Étape 1/2: Inventaire de la flore locale via GBIF...", true);
@@ -413,6 +420,32 @@ document.addEventListener('DOMContentLoaded', async () => {
             obsMapContainer.style.display = 'none';
         }
     };
+
+    const downloadShapefile = () => {
+        if (!lastLocations) return;
+        const features = [];
+        lastLocations.forEach(loc => {
+            const projected = proj4('WGS84', PROJ4_2154, [loc.lon, loc.lat]);
+            features.push({
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: projected },
+                properties: { especes: loc.speciesList.map(s => s.name).join(', ') }
+            });
+        });
+        const geojson = { type: 'FeatureCollection', features };
+        try {
+            const content = shpwrite.zip(geojson, { folder: 'data', types: { point: 'patrimoine' } });
+            const link = document.createElement('a');
+            link.href = 'data:application/zip;base64,' + content;
+            link.download = 'patrimoine.zip';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        } catch(e) {
+            console.error('Export Shapefile failed', e);
+            showNotification('Erreur lors de la génération du Shapefile', 'error');
+        }
+    };
     
     // --- 6. DÉMARRAGE DE L'APPLICATION ---
     await initializeApp();
@@ -422,4 +455,5 @@ document.addEventListener('DOMContentLoaded', async () => {
     addressInput.addEventListener('keypress', (e) => e.key === 'Enter' && handleAddressSearch());
     analysisTabBtn.addEventListener('click', () => switchTab('analysis'));
     observationsTabBtn.addEventListener('click', () => switchTab('observations'));
+    downloadShapefileBtn.addEventListener('click', downloadShapefile);
 });

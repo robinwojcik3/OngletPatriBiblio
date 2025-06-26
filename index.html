@@ -8,7 +8,10 @@
     <link rel="stylesheet" href="style.css"/>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    
+
+    <script src="libs/proj4.js"></script>
+    <script src="libs/shpwrite.js"></script>
+
     <script defer src="ui.js"></script>
     <script defer src="biblio-patri.js"></script>
 </head>
@@ -37,6 +40,7 @@
             <div id="map" style="display: none;"></div>
 
             <div id="results" class="results-container"></div>
+            <button id="download-shapefile-btn" class="action-button" style="display:none;">Télécharger le Shapefile</button>
         </div>
 
         <div id="observations-tab" class="tab-content" style="display:none;">
