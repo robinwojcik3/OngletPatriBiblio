@@ -3,40 +3,7 @@
 
 document.addEventListener('DOMContentLoaded', async () => {
     // --- 1. Injection des styles ---
-    const pageStyles = `
-        :root { --primary:#c62828; --bg:#f6f9fb; --card:#ffffff; --border:#e0e0e0; --text:#202124; --max-width:900px; }
-        html[data-theme="dark"] { --bg:#181a1b; --card:#262b2f; --border:#333; --text:#ececec; }
-        * { box-sizing: border-box; }
-        body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; min-height: 100vh; }
-        .main-content { padding: 1rem; max-width: var(--max-width); margin: 2rem auto; width: 95%; }
-        h1 { color: var(--primary); margin: 0 0 1rem; font-size: 1.8rem; text-align: center; }
-        .status-container { text-align: center; margin: 2rem 0; font-size: 1rem; min-height: 24px; }
-        .loading::after { content: ''; display: inline-block; width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        #map { height: 500px; width: 100%; border-radius: 8px; border: 1px solid var(--border); box-shadow: 0 2px 6px rgba(0,0,0,.1); margin-top: 1.5rem; margin-bottom: 1.5rem; }
-        .results-container { overflow-x: auto; -webkit-overflow-scrolling:touch; }
-        table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--border); border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,.05); margin:1rem 0; }
-        th, td { padding: 10px 12px; border-bottom:1px solid var(--border); text-align:left; vertical-align: middle; }
-        th { font-weight: 600; background: #f5f5f5; color: #202124; }
-        html[data-theme="dark"] th { background: #333; color: #ececec; }
-        tbody tr:last-child td { border-bottom:none; }
-        tbody tr:hover { background-color: rgba(198, 40, 40, 0.05); cursor: pointer; }
-        html[data-theme="dark"] tbody tr:hover { background-color: rgba(198, 40, 40, 0.15); }
-        .legend-color { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; vertical-align: middle; }
-        .search-controls { display: flex; flex-direction: column; gap: 0.75rem; padding: 1.5rem; background-color: var(--card); border-radius: 8px; border: 1px solid var(--border); margin-bottom: 2rem; }
-        .tabs { display: flex; justify-content: center; gap: 1rem; margin-bottom: 1rem; }
-        .tab-button { background: var(--card); border: 1px solid var(--border); padding: 0.5rem 1rem; cursor: pointer; border-radius: 4px; }
-        .tab-button.active { background: var(--primary); color: #fff; }
-        .tab-content { display: none; }
-        #observations-map { height: 500px; width: 100%; border-radius: 8px; border: 1px solid var(--border); box-shadow: 0 2px 6px rgba(0,0,0,.1); margin-top: 1.5rem; margin-bottom: 1.5rem; }
-        .marker-cluster-icon { border-radius: 50%; border: 2px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px; text-shadow: 1px 1px 2px rgba(0,0,0,0.7); }
-        .custom-popup b { display: block; margin-bottom: 5px; font-size: 1.1em; color: var(--primary); }
-        .custom-popup ul { list-style: none; padding: 0; margin: 0; }
-        .custom-popup li { padding: 3px 0; }
-    `;
-    const styleElement = document.createElement('style');
-    styleElement.textContent = pageStyles;
-    document.head.appendChild(styleElement);
+    
     
     // --- 2. Déclaration des variables et constantes globales ---
     const statusDiv = document.getElementById('status');
