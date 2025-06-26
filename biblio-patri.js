@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const observationsTab = document.getElementById('observations-tab');
     const obsStatusDiv = document.getElementById('obs-status');
     const obsMapContainer = document.getElementById('observations-map');
+    const obsGeolocBtn = document.getElementById('obs-geoloc-btn');
     const downloadShapefileBtn = document.getElementById('download-shapefile-btn');
     const downloadContainer = document.getElementById('download-container');
 
@@ -340,12 +341,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             observationsTab.style.display = 'block';
             analysisTabBtn.classList.remove('active');
             observationsTabBtn.classList.add('active');
-            loadObservations();
+            initializeObservationMap();
+            obsStatusDiv.textContent = "Double-cliquez sur la carte ou faites un long appui pour choisir un endroit, ou utilisez la géolocalisation.";
         }
     };
 
-    const initializeObservationMap = (coords) => {
-        if (obsMap) obsMap.remove();
+    let obsSearchCircle = null;
+
+    const initializeObservationMap = () => {
+        if (obsMap) return;
         obsMapContainer.style.display = 'block';
         const planMap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors'
@@ -361,7 +365,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         );
 
-        obsMap = L.map(obsMapContainer, { center: [coords.latitude, coords.longitude], zoom: 18, layers: [planMap] });
+        obsMap = L.map(obsMapContainer, { center: [46.5, 2], zoom: 6, layers: [planMap] });
 
         observationsLayerGroup = L.layerGroup().addTo(obsMap);
 
@@ -376,7 +380,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         L.control.layers(baseMaps, overlayMaps).addTo(obsMap);
 
-        L.circle([coords.latitude, coords.longitude], { radius: OBS_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(obsMap);
+        let pressTimer;
+        const handleSelect = (latlng) => loadObservationsAt({ latitude: latlng.lat, longitude: latlng.lng });
+        obsMap.on('dblclick', (e) => handleSelect(e.latlng));
+        obsMap.on('mousedown touchstart', (e) => {
+            pressTimer = setTimeout(() => handleSelect(e.latlng), 600);
+        });
+        obsMap.on('mouseup touchend', () => clearTimeout(pressTimer));
     };
 
     const displayObservations = (occurrences) => {
@@ -406,12 +416,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     };
 
-    const loadObservations = async () => {
+    const loadObservationsAt = async (coords) => {
         try {
-            obsStatusDiv.textContent = 'Récupération de votre position...';
-            obsMapContainer.style.display = 'none';
-            const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 }));
-            initializeObservationMap(coords);
+            if (!obsMap) initializeObservationMap();
+            obsMapContainer.style.display = 'block';
+            obsMap.setView([coords.latitude, coords.longitude], 18);
+            if (obsSearchCircle) obsMap.removeLayer(obsSearchCircle);
+            obsSearchCircle = L.circle([coords.latitude, coords.longitude], { radius: OBS_RADIUS_KM * 1000, color: '#c62828', weight: 2, fillOpacity: 0.1, interactive: false }).addTo(obsMap);
             obsStatusDiv.textContent = 'Recherche des occurrences GBIF...';
             const wkt = `POLYGON((${Array.from({length:33},(_,i)=>{const a=i*2*Math.PI/32,r=111.32*Math.cos(coords.latitude*Math.PI/180);return`${(coords.longitude+OBS_RADIUS_KM/r*Math.cos(a)).toFixed(5)} ${(coords.latitude+OBS_RADIUS_KM/111.132*Math.sin(a)).toFixed(5)}`}).join(', ')}))`;
             const url = `https://api.gbif.org/v1/occurrence/search?limit=300&geometry=${encodeURIComponent(wkt)}&taxonKey=${TRACHEOPHYTA_TAXON_KEY}`;
@@ -422,7 +433,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             displayObservations(data.results);
         } catch(error) {
             obsStatusDiv.textContent = `Erreur : ${error.message}`;
-            obsMapContainer.style.display = 'none';
+        }
+    };
+
+    const geolocateAndLoadObservations = async () => {
+        try {
+            obsStatusDiv.textContent = 'Récupération de votre position...';
+            const { coords } = await new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 }));
+            loadObservationsAt(coords);
+        } catch(error) {
+            obsStatusDiv.textContent = `Erreur : ${error.message}`;
         }
     };
     
@@ -434,5 +454,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     addressInput.addEventListener('keypress', (e) => e.key === 'Enter' && handleAddressSearch());
     analysisTabBtn.addEventListener('click', () => switchTab('analysis'));
     observationsTabBtn.addEventListener('click', () => switchTab('observations'));
+    obsGeolocBtn.addEventListener('click', geolocateAndLoadObservations);
     downloadShapefileBtn.addEventListener('click', downloadShapefile);
 });
