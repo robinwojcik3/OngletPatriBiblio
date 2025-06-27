@@ -41,9 +41,9 @@ h1 {
 
 .tabs {
   display: flex;
-  justify-content: center;
   gap: 0.75rem;
   margin-bottom: 1rem;
+  align-items: center;
 }
 .tab-button {
   background: var(--card);
@@ -56,6 +56,10 @@ h1 {
 .tab-button.active {
   background: var(--primary);
   color: #fff;
+}
+
+#theme-toggle {
+  margin-left: auto;
 }
 
 .tab-content {
