@@ -29,6 +29,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const obsGeolocBtn = document.getElementById('obs-geoloc-btn');
     const obsDrawPolygonBtn = document.getElementById('obs-draw-polygon-btn');
     const obsToggleTrackingBtn = document.getElementById('obs-toggle-tracking-btn');
+    const toggleLabelsBtn = document.getElementById('toggle-labels-btn');
+    const obsToggleLabelsBtn = document.getElementById('obs-toggle-labels-btn');
     const downloadShapefileBtn = document.getElementById('download-shapefile-btn');
     const downloadContainer = document.getElementById('download-container');
 
@@ -96,6 +98,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     let trackingWatchId = null;
     let trackingMarker = null;
     let trackingActive = false;
+    let labelsVisible = true;
+    let obsLabelsVisible = true;
     const SEARCH_RADIUS_KM = 2;
     const OBS_RADIUS_KM = 1;
     const TRACHEOPHYTA_TAXON_KEY = 7707728; // GBIF taxonKey for vascular plants
@@ -690,6 +694,25 @@ const initializeSelectionMap = (coords) => {
             loadObservationsAt({ latitude: centroid.latitude, longitude: centroid.longitude, wkt, polygon: latlngs });
         });
     };
+
+    const toggleMapLabels = () => {
+        labelsVisible = !labelsVisible;
+        if (labelsVisible) {
+            mapContainer.classList.remove('labels-hidden');
+            if (toggleLabelsBtn) toggleLabelsBtn.textContent = 'Masquer étiquettes';
+        } else {
+            mapContainer.classList.add('labels-hidden');
+            if (toggleLabelsBtn) toggleLabelsBtn.textContent = 'Afficher étiquettes';
+        }
+    };
+
+    const toggleObsMapLabels = () => {
+        obsLabelsVisible = !obsLabelsVisible;
+        obsMapContainer.classList.toggle('labels-hidden', !obsLabelsVisible);
+        if (obsToggleLabelsBtn) {
+            obsToggleLabelsBtn.textContent = obsLabelsVisible ? 'Masquer étiquettes' : 'Afficher étiquettes';
+        }
+    };
     
     // --- 6. DÉMARRAGE DE L'APPLICATION ---
     await initializeApp();
@@ -706,10 +729,19 @@ const initializeSelectionMap = (coords) => {
     obsDrawPolygonBtn.addEventListener('click', startObsPolygonSelection);
     downloadShapefileBtn.addEventListener('click', downloadShapefile);
     toggleTrackingBtn.addEventListener('click', () => toggleLocationTracking(map, toggleTrackingBtn));
+    if (toggleLabelsBtn) {
+        toggleLabelsBtn.addEventListener('click', toggleMapLabels);
+    }
     if (obsToggleTrackingBtn) {
         obsToggleTrackingBtn.addEventListener('click', () => {
             initializeObservationMap();
             toggleLocationTracking(obsMap, obsToggleTrackingBtn);
+        });
+    }
+    if (obsToggleLabelsBtn) {
+        obsToggleLabelsBtn.addEventListener('click', () => {
+            initializeObservationMap();
+            toggleObsMapLabels();
         });
     }
 });
