@@ -29,11 +29,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     const obsGeolocBtn = document.getElementById('obs-geoloc-btn');
     const obsDrawPolygonBtn = document.getElementById('obs-draw-polygon-btn');
     const obsToggleTrackingBtn = document.getElementById('obs-toggle-tracking-btn');
+    const toggleLabelsBtn = document.getElementById('toggle-labels-btn');
+    const obsToggleLabelsBtn = document.getElementById('obs-toggle-labels-btn');
     const downloadShapefileBtn = document.getElementById('download-shapefile-btn');
     const downloadContainer = document.getElementById('download-container');
 
     let trackingMap = null;
     let trackingButton = null;
+    let mapLabelsVisible = true;
+    let obsLabelsVisible = true;
 
     const stopLocationTracking = () => {
         if (trackingWatchId !== null) {
@@ -78,6 +82,26 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const toggleLocationTracking = (mapInstance, buttonEl) => {
         if (trackingActive) stopLocationTracking(); else startLocationTracking(mapInstance, buttonEl);
+    };
+
+    const updateLabelsVisibility = () => {
+        if (mapLabelsVisible) {
+            mapContainer.classList.remove('hide-labels');
+            if (toggleLabelsBtn) toggleLabelsBtn.textContent = '🏷️ Masquer noms';
+        } else {
+            mapContainer.classList.add('hide-labels');
+            if (toggleLabelsBtn) toggleLabelsBtn.textContent = '🏷️ Afficher noms';
+        }
+    };
+
+    const updateObsLabelsVisibility = () => {
+        if (obsLabelsVisible) {
+            obsMapContainer.classList.remove('hide-labels');
+            if (obsToggleLabelsBtn) obsToggleLabelsBtn.textContent = '🏷️ Masquer noms';
+        } else {
+            obsMapContainer.classList.add('hide-labels');
+            if (obsToggleLabelsBtn) obsToggleLabelsBtn.textContent = '🏷️ Afficher noms';
+        }
     };
 
     let currentShapefileData = null;
@@ -695,6 +719,8 @@ const initializeSelectionMap = (coords) => {
     await initializeApp();
     switchTab('analysis');
     startMapSelection();
+    updateLabelsVisibility();
+    updateObsLabelsVisibility();
     searchAddressBtn.addEventListener('click', handleAddressSearch);
     useGeolocationBtn.addEventListener('click', handleGeolocationSearch);
     selectOnMapBtn.addEventListener('click', startMapSelection);
@@ -706,10 +732,22 @@ const initializeSelectionMap = (coords) => {
     obsDrawPolygonBtn.addEventListener('click', startObsPolygonSelection);
     downloadShapefileBtn.addEventListener('click', downloadShapefile);
     toggleTrackingBtn.addEventListener('click', () => toggleLocationTracking(map, toggleTrackingBtn));
+    if (toggleLabelsBtn) {
+        toggleLabelsBtn.addEventListener('click', () => {
+            mapLabelsVisible = !mapLabelsVisible;
+            updateLabelsVisibility();
+        });
+    }
     if (obsToggleTrackingBtn) {
         obsToggleTrackingBtn.addEventListener('click', () => {
             initializeObservationMap();
             toggleLocationTracking(obsMap, obsToggleTrackingBtn);
+        });
+    }
+    if (obsToggleLabelsBtn) {
+        obsToggleLabelsBtn.addEventListener('click', () => {
+            obsLabelsVisible = !obsLabelsVisible;
+            updateObsLabelsVisibility();
         });
     }
 });

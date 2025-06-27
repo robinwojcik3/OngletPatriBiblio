@@ -151,6 +151,11 @@ html[data-theme="dark"] tbody tr:hover { background-color: rgba(198,40,40,0.15);
   vertical-align: middle;
 }
 
+#map.hide-labels .leaflet-tooltip,
+#observations-map.hide-labels .leaflet-tooltip {
+  display: none;
+}
+
 @media (min-width: 600px) {
   .search-controls { flex-direction: row; flex-wrap: wrap; align-items: center; }
   .main-content { padding: 2rem; }
