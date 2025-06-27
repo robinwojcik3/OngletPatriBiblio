@@ -712,4 +712,27 @@ const initializeSelectionMap = (coords) => {
             toggleLocationTracking(obsMap, obsToggleTrackingBtn);
         });
     }
+
+    // Function to toggle labels on map markers
+    window.toggleLabels = (mapType) => {
+        let layerGroup;
+        if (mapType === 'analysis') {
+            layerGroup = patrimonialLayerGroup;
+        } else if (mapType === 'observations') {
+            layerGroup = observationsLayerGroup;
+        }
+
+        if (layerGroup) {
+            layerGroup.eachLayer(function (layer) {
+                if (layer.getTooltip()) {
+                    if (layer.getTooltip()._container && layer.getTooltip()._container.style.display === 'none') {
+                        layer.openTooltip();
+                    } else {
+                        layer.closeTooltip();
+                    }
+                }
+            });
+        }
+    };
+});
 });

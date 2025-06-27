@@ -12,6 +12,25 @@
         const notificationContainer = document.createElement('div');
         notificationContainer.id = 'notification-container';
         document.body.appendChild(notificationContainer);
+
+        // Event listeners for label toggle buttons
+        const toggleLabelsAnalysisBtn = document.getElementById('toggle-labels-analysis-btn');
+        if (toggleLabelsAnalysisBtn) {
+            toggleLabelsAnalysisBtn.addEventListener('click', () => {
+                if (window.toggleLabels) {
+                    window.toggleLabels('analysis');
+                }
+            });
+        }
+
+        const toggleLabelsObservationsBtn = document.getElementById('toggle-labels-observations-btn');
+        if (toggleLabelsObservationsBtn) {
+            toggleLabelsObservationsBtn.addEventListener('click', () => {
+                if (window.toggleLabels) {
+                    window.toggleLabels('observations');
+                }
+            });
+        }
     });
 
     window.showNotification = function(message, type = 'info') {
