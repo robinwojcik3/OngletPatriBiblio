@@ -42,7 +42,15 @@ ${uniqueSpeciesNames.join(', ')}`;
         
         const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
         const geminiResp = await fetch(geminiUrl, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' }, 
+            // MODIFICATION : Ajout de "role": "user" pour la conformité avec l'API Gemini.
+            body: JSON.stringify({ 
+                contents: [{ 
+                    role: "user", 
+                    parts: [{ text: prompt }] 
+                }] 
+            })
         });
 
         if (!geminiResp.ok) { const errBody = await geminiResp.text(); console.error("Erreur de l'API Gemini:", errBody); throw new Error(`L'API d'analyse a retourné une erreur: ${geminiResp.statusText}`); }
