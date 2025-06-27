@@ -2,7 +2,7 @@
 const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
 
 // La clé API reste le seul secret côté serveur.
-const GEMINI_API_KEY = "AIzaSyDDv4amCchpTXGqz6FGuY8mxPClkw-uwMs";
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 exports.handler = async function(event) {
     if (event.httpMethod !== 'POST') return { statusCode: 405, body: 'Method Not Allowed' };
